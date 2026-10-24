@@ -21,7 +21,7 @@ self.addEventListener("fetch", event => {
   event.respondWith((async () => {
     const cache = await caches.open(CACHE);
     try {
-      const response = await fetch(event.request, { cache: "no-cache" });
+      const response = await fetch(event.request, { cache: "no-cache", signal: AbortSignal.timeout(2500) });
       if (response.ok && response.type === "basic" && !response.redirected) {
         await cache.put(path, response.clone());
       }

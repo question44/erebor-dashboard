@@ -110,6 +110,56 @@ Status, OpenAPI and Swagger UI are under `/api/control/`.
 The standalone command accepts environment variables `DASHBOARD_HOSTS` and
 `DASHBOARD_ACTIONS` (comma-separated), and `DASHBOARD_WLED_URL`.
 
+## NanoKVM ATX wake
+
+Add `wake` to frontend `settings.actions` and set `settings.wakeUrl` to an
+independent HTTPS endpoint, for example
+`https://<nanokvm-magicdns-name>:8443/wake`. This action goes directly from the
+browser to NanoKVM; do not add it to the sleeping host's `control.enabledActions`.
+The cached PWA opens while the host sleeps and waits up to 90 seconds for its
+control API after a wake request. A cached shell request falls back after 2.5s.
+
+`nanokvm/wake.py` is a standard-library Python 3 service for NanoKVM Cube/PCIe
+GPIO hardware. Install it outside `/kvmapp` as `/opt/erebor-wake/wake.py`, and put
+a `config.json` next to it with `login` (the permitted Tailscale user's login)
+and `origins` (an array of exact HTTPS dashboard origins). Install
+`nanokvm/S99erebor-wake` at `/etc/init.d/S99erebor-wake`, mark it executable,
+and run it with `start`. Then configure on NanoKVM:
+
+```sh
+tailscale serve --bg --https=8443 http://127.0.0.1:18091
+```
+
+Serve provides TLS and authenticated Tailscale identity headers; the helper
+binds only to loopback and permits only the configured login. Browser requests
+also require an allowed origin, JSON `{}`, and `X-Erebor-Wake: 1`. No NanoKVM
+password or API token goes into frontend configuration. Tailscale must be on
+on the client; the browser may request local network access permission. This
+does not enable Funnel or expose the service publicly.
+
+The only operation is a 200ms ATX press. The helper samples the active-low
+power LED for four seconds: steady on refuses a press, off or blinking allows
+one. Invalid GPIO readings fail closed; concurrent requests and repeats within
+30 seconds are rejected. Wire both power switch and LED correctly. A sleeping
+PC whose LED stays steadily on will be refused too. Test real wake behavior
+on the target motherboard; software tests do not prove physical wiring or
+the sleep LED pattern. Existing NanoKVM power controls can still operate the
+same GPIO independently; avoid using them concurrently.
+
+`GET /status` samples the LED without pressing the button and reports `awake`
+(steady on), `asleep` (blinking), `off` (unlit), or `unknown` (unreadable).
+The frontend polls this independently of the host API every 10 seconds, clears
+stale readings on connection/visibility changes, and disables Wake up when the
+LED indicates awake. An unreachable NanoKVM is shown as unavailable, never
+assumed asleep. LED states describe motherboard signals, not OS health.
+
+`GET /health` through Serve checks identity and service availability without
+touching GPIO. Run `python3 -m unittest discover -s nanokvm -v` for mocked
+GPIO and HTTP boundary tests (also included in flake checks). To disable:
+`tailscale serve --https=8443 off`, stop the init script, and remove its execute
+permission. NanoKVM reboots start the helper through the init script; Serve's
+background configuration persists. Firmware updates may require redeployment.
+
 ## Development and submodule workflow
 
 Frontend sources are in `frontend/`, API and mocked action tests in `api/`, and

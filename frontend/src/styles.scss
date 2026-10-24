@@ -59,7 +59,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--primary); outli
 .state-heading { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .state-heading erebor-icon { color: var(--primary); }
 .state-heading strong { margin-left: auto; font-size: .875rem; }
-.state-heading strong[data-state="on"] { color: light-dark(#236b31, #a0d5a6); }
-.state-heading strong[data-state="mixed"] { color: light-dark(#805600, #f1cb77); }
+.state-heading strong[data-state="on"], .state-heading strong[data-state="awake"] { color: light-dark(#236b31, #a0d5a6); }
+.state-heading strong[data-state="mixed"], .state-heading strong[data-state="asleep"] { color: light-dark(#805600, #f1cb77); }
 .state-summary p { margin: 8px 0 0; font-size: .8rem; line-height: 1.5; color: var(--secondary); }
 @media (max-width: 599px) { .device-controls { grid-template-columns: 1fr; } }

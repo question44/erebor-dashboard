@@ -1,0 +1,23 @@
+#!/bin/sh
+set -eu
+PIDFILE=/var/run/erebor-wake.pid
+case "${1:-}" in
+  start)
+    start-stop-daemon -S -b -m -p "$PIDFILE" -x /usr/bin/python3 -- /opt/erebor-wake/wake.py --config /opt/erebor-wake/config.json
+    ;;
+  stop)
+    start-stop-daemon -K -p "$PIDFILE"
+    pid=$(cat "$PIDFILE")
+    count=0
+    while kill -0 "$pid" 2>/dev/null; do
+      count=$((count + 1))
+      [ "$count" -lt 15 ] || exit 1
+      sleep 1
+    done
+    ;;
+  restart)
+    "$0" stop
+    "$0" start
+    ;;
+  *) echo "Usage: $0 {start|stop|restart}" >&2; exit 1 ;;
+esac

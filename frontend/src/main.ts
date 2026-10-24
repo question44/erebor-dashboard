@@ -11,6 +11,7 @@ type Device = 'display' | 'ambilight';
 type DeviceState = 'on' | 'off' | 'mixed' | 'unknown';
 interface DeviceStatus { state: DeviceState; detail: string; }
 interface DeviceSnapshot { display: DeviceStatus; ambilight: DeviceStatus; }
+interface PowerStatus { state: 'awake' | 'asleep' | 'off' | 'unknown'; detail: string; }
 interface Status { severity: 'info' | 'success' | 'error'; text: string; }
 
 const paths: Record<string, string> = {
@@ -28,6 +29,7 @@ const paths: Record<string, string> = {
   arrow: 'M7 17 17 7 M7 7h10v10',
 };
 const availableActions = (): Action[] => [
+  { id: 'wake', label: 'Wake up', icon: 'power' },
   { id: 'display-on', label: 'Display on', icon: 'display' },
   { id: 'display-off', label: 'Display off', icon: 'display', off: true },
   { id: 'ambilight-on', label: 'Ambilight on', icon: 'light' },
@@ -43,6 +45,7 @@ interface Service {
 interface Settings {
   title: string; description: string; domainSuffix: string;
   actions: string[]; services: Service[];
+  wakeUrl?: string;
 }
 const settings: Settings = await fetch('/config.json').then(response => {
   if (!response.ok) throw new Error('Dashboard configuration unavailable');
@@ -73,7 +76,8 @@ class Icon {
 })
 class Dashboard {
   readonly settings = settings;
-  readonly actions = availableActions().filter(action => settings.actions.includes(action.id));
+  readonly actions = availableActions().filter(action => settings.actions.includes(action.id)
+    && (action.id !== 'wake' || settings.wakeUrl?.startsWith('https://')));
   readonly services = services;
   readonly deviceControls = (['display', 'ambilight'] as const).map(device => ({
     id: device,
@@ -82,6 +86,10 @@ class Dashboard {
     actions: this.actions.filter(action => action.id.startsWith(`${device}-`)),
   })).filter(device => device.actions.length);
   readonly systemActions = this.actions.filter(action => !this.deviceControls.some(device => device.actions.includes(action)));
+  readonly hasWake = this.actions.some(action => action.id === 'wake');
+  readonly power = signal<PowerStatus | null>(null);
+  readonly checkingPower = signal(false);
+  private powerRequest: AbortController | null = null;
   readonly online = signal(navigator.onLine);
   readonly busy = signal(false);
   readonly status = signal<Status | null>(null);
@@ -100,11 +108,16 @@ class Dashboard {
     scheme.addEventListener('change', update);
     document.title = `${settings.title} services`;
     void this.refreshDevices();
-    const poll = window.setInterval(() => void this.refreshDevices(), 10000);
+    void this.refreshPower();
+    const poll = window.setInterval(() => {
+      void this.refreshDevices();
+      void this.refreshPower();
+    }, 10000);
     inject(DestroyRef).onDestroy(() => {
       scheme.removeEventListener('change', update);
       window.clearInterval(poll);
       this.clearDevices();
+      this.clearPower();
     });
   }
 
@@ -113,13 +126,15 @@ class Dashboard {
   connectionChanged() {
     this.online.set(navigator.onLine);
     this.clearDevices();
-    if (this.online()) void this.refreshDevices();
+    this.clearPower();
+    if (this.online()) { void this.refreshDevices(); void this.refreshPower(); }
   }
 
   @HostListener('document:visibilitychange')
   visibilityChanged() {
     this.clearDevices();
-    if (!document.hidden) void this.refreshDevices();
+    this.clearPower();
+    if (!document.hidden) { void this.refreshDevices(); void this.refreshPower(); }
   }
 
   private clearDevices() {
@@ -127,6 +142,43 @@ class Dashboard {
     this.deviceRequest = null;
     this.devices.set(null);
     this.checkingDevices.set(false);
+  }
+
+  private clearPower() {
+    this.powerRequest?.abort();
+    this.powerRequest = null;
+    this.power.set(null);
+    this.checkingPower.set(false);
+  }
+
+  powerLabel() {
+    const state = this.power()?.state;
+    return state ? { awake: 'Awake', asleep: 'Asleep', off: 'Powered off', unknown: 'Unknown' }[state]
+      : this.checkingPower() ? 'Checking…' : 'Unavailable';
+  }
+
+  async refreshPower() {
+    if (!this.hasWake || !settings.wakeUrl || this.powerRequest || !this.online() || document.hidden || this.busy()) return;
+    const controller = new AbortController();
+    this.powerRequest = controller;
+    this.checkingPower.set(true);
+    try {
+      const response = await fetch(new URL('status', settings.wakeUrl), {
+        mode: 'cors', credentials: 'omit', cache: 'no-store',
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]),
+      });
+      if (!response.ok) throw new Error('Power status unavailable');
+      const result: PowerStatus = await response.json();
+      if (!['awake', 'asleep', 'off', 'unknown'].includes(result.state) || typeof result.detail !== 'string') throw new Error('Invalid power status');
+      if (!controller.signal.aborted) this.power.set(result);
+    } catch {
+      if (!controller.signal.aborted) this.power.set(null);
+    } finally {
+      if (this.powerRequest === controller) {
+        this.powerRequest = null;
+        this.checkingPower.set(false);
+      }
+    }
   }
 
   async refreshDevices() {
@@ -191,9 +243,11 @@ class Dashboard {
   }
 
   async execute(action: Action) {
+    if (action.id === 'wake') { await this.wake(); return; }
     if (this.busy() || !navigator.onLine) return;
     this.busy.set(true);
     this.clearDevices();
+    this.clearPower();
     this.status.set({ severity: 'info', text: 'Sending command…' });
     try {
       const response = await fetch('/api/control', {
@@ -212,6 +266,54 @@ class Dashboard {
     } finally {
       this.busy.set(false);
       void this.refreshDevices();
+      void this.refreshPower();
+    }
+  }
+
+  async wake() {
+    if (this.busy() || !navigator.onLine || !settings.wakeUrl) return;
+    this.busy.set(true);
+    this.clearDevices();
+    this.clearPower();
+    this.status.set({ severity: 'info', text: 'Checking power state through NanoKVM…' });
+    try {
+      const response = await fetch(settings.wakeUrl, {
+        method: 'POST', mode: 'cors', credentials: 'omit', cache: 'no-store',
+        headers: { 'Content-Type': 'application/json', 'X-Erebor-Wake': '1' },
+        body: '{}', signal: AbortSignal.timeout(20000),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Wake command failed');
+      if (result.state === 'already-on') {
+        this.status.set({ severity: 'info', text: 'Power LED is steadily on. No button press sent. The PC may already be running.' });
+        return;
+      }
+      if (result.state !== 'wake-sent') throw new Error('Unexpected NanoKVM response');
+      this.status.set({ severity: 'info', text: 'Wake command sent. Waiting for the dashboard server…' });
+      const deadline = Date.now() + 90000;
+      while (Date.now() < deadline) {
+        await new Promise(resolve => window.setTimeout(resolve, 2000));
+        try {
+          const check = await fetch('/api/control/status', { cache: 'no-store', signal: AbortSignal.timeout(3000) });
+          if (check.ok) {
+            const snapshot: DeviceSnapshot = await check.json();
+            if (snapshot.display && snapshot.ambilight) {
+              this.devices.set(snapshot);
+              this.status.set({ severity: 'success', text: `${settings.title} is awake and its dashboard server is responding.` });
+              return;
+            }
+          }
+        } catch { /* Keep waiting while the host resumes or boots. */ }
+      }
+      this.status.set({ severity: 'info', text: 'Wake command was sent, but the dashboard server has not responded yet. Check NanoKVM; another operating system may have started.' });
+    } catch (error) {
+      this.status.set({ severity: 'error', text: error instanceof TypeError
+        ? 'Could not reach NanoKVM. Check Tailscale and allow local network access if your browser asks. The wake result is unknown.'
+        : error instanceof Error ? error.message : 'Wake command failed' });
+    } finally {
+      this.busy.set(false);
+      void this.refreshDevices();
+      void this.refreshPower();
     }
   }
 }
