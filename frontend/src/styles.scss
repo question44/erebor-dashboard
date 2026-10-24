@@ -11,7 +11,15 @@ html {
 * { box-sizing: border-box; }
 body { margin: 0; }
 main { max-width: 900px; margin: auto; padding: 48px 24px; }
-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.host-heading { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; min-width: 0; }
+.host-heading h1 { overflow-wrap: anywhere; }
+.host-status { --led: light-dark(#747078, #96919b); display: inline-flex; align-items: center; gap: 8px; color: var(--secondary); font-size: .8rem; white-space: nowrap; }
+.status-led { width: 10px; height: 10px; flex-shrink: 0; border-radius: 50%; background: var(--led); box-shadow: 0 0 0 3px color-mix(in srgb, var(--led) 12%, transparent); }
+.host-status[data-state="awake"] { --led: light-dark(#25853d, #82d995); }
+.host-status[data-state="asleep"] { --led: light-dark(#a56800, #f1c15b); }
+.host-status[data-state="off"] { --led: light-dark(#bc4141, #ec8d8d); }
+.host-status[data-state="awake"] .status-led, .host-status[data-state="asleep"] .status-led { box-shadow: 0 0 0 3px color-mix(in srgb, var(--led) 12%, transparent), 0 0 9px color-mix(in srgb, var(--led) 45%, transparent); }
 h1 { font-size: clamp(2rem, 8vw, 3rem); font-weight: 650; letter-spacing: -.04em; margin: 0; }
 h2 { font-size: 1.25rem; font-weight: 600; margin: 0 0 16px; }
 .intro { color: var(--secondary); margin: 8px 0 32px; }
