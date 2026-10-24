@@ -154,6 +154,29 @@ the LED indicates asleep or off. Awake, unknown, checking and unavailable states
 keep the button disabled. An unreachable NanoKVM is shown as unavailable, never
 assumed asleep. LED states describe motherboard signals, not OS health.
 
+Optionally add `osPeers` to the NanoKVM helper's private `config.json`:
+
+```json
+"osPeers": [
+  {"state": "nixos", "nodeId": "<stable Tailscale node ID>", "ip": "100.x.y.z", "tailscaleOS": "linux"},
+  {"state": "windows", "nodeId": "<native Windows node ID>", "ip": "100.a.b.c", "tailscaleOS": "windows"}
+]
+```
+
+Get IDs, addresses and OS values from `tailscale status --json`. Configure only
+the native installations on the host, excluding VMs. Each OS must run Tailscale
+with a separate identity. No additional Windows service is needed. The helper
+requires the `tailscale` CLI and permission to query/ping peers. While the LED
+reports awake, it verifies the pinned identity/address/OS and sends a fresh
+TSMP ping to each configured peer, with bounded timeouts. Online flags and old
+handshakes are not used as proof. Exactly one reply identifies the OS; no reply,
+conflicting replies or errors produce unknown. These are independent network
+observations, not hardware attestation; reconfigure if an identity is replaced.
+`GET /status` includes `operatingSystem: {state, detail}` (`nixos`, `windows`, or
+`unknown`). The header shows e.g. `Awake · NixOS`; sleep/off hides the OS, and
+failed requests clear prior readings. The same cached PWA works when Windows
+is running; first load/install and configuration caching must happen on NixOS.
+
 `GET /health` through Serve checks identity and service availability without
 touching GPIO. Run `python3 -m unittest discover -s nanokvm -v` for mocked
 GPIO and HTTP boundary tests (also included in flake checks). To disable:

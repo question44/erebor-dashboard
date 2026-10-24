@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Wake-only ATX endpoint, bound to loopback behind Tailscale Serve."""
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 import signal
+import subprocess
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -10,6 +12,48 @@ from pathlib import Path
 
 POWER = Path('/sys/class/gpio/gpio503/value')
 LED = Path('/sys/class/gpio/gpio504/value')
+
+
+class OSDetector:
+    """Probe explicitly configured boot identities, never infer OS from silence."""
+
+    def __init__(self, peers):
+        self.peers = peers
+
+    def status(self, power_state):
+        unknown = {'state': 'unknown', 'detail': 'No operating system responded.'}
+        if power_state != 'awake':
+            return {'state': 'unknown', 'detail': 'OS detection requires the host to be awake.'}
+        if not self.peers:
+            return {'state': 'unknown', 'detail': 'No OS identities configured.'}
+        try:
+            result = subprocess.run(['tailscale', 'status', '--json'], capture_output=True,
+                                    text=True, timeout=2, check=True)
+            network = json.loads(result.stdout)
+            if network['BackendState'] != 'Running':
+                return unknown
+            nodes = {node['ID']: node for node in network['Peer'].values()}
+
+            def responds(peer):
+                node = nodes.get(peer['nodeId'], {})
+                # Pin identity, address and OS; a VM or renamed device must not match.
+                if (peer['ip'] not in node.get('TailscaleIPs', [])
+                        or node.get('OS') != peer['tailscaleOS']):
+                    return None
+                probe = subprocess.run(['tailscale', 'ping', '--tsmp', '--c=1',
+                                        '--timeout=1s', peer['ip']], capture_output=True,
+                                       text=True, timeout=2)
+                return peer['state'] if probe.returncode == 0 else None
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                replies = list(filter(None, pool.map(responds, self.peers)))
+            if len(replies) == 1 and replies[0] in {'nixos', 'windows'}:
+                return {'state': replies[0], 'detail': 'Configured OS identity answered a fresh Tailscale probe.'}
+            if len(replies) > 1:
+                return {'state': 'unknown', 'detail': 'Multiple OS identities responded; running OS is ambiguous.'}
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError):
+            pass
+        return unknown
 
 
 class WakeController:
@@ -62,7 +106,8 @@ class WakeController:
             self.lock.release()
 
 
-def handler(config, controller):
+def handler(config, controller, detector=None):
+    detector = detector or OSDetector(config.get('osPeers', []))
     class Handler(BaseHTTPRequestHandler):
         def setup(self):
             super().setup()
@@ -96,7 +141,9 @@ def handler(config, controller):
             if not self.authorized():
                 return self.reply(403, {'error': 'Tailscale user not allowed.'})
             if self.path == '/status':
-                return self.reply(*controller.status())
+                status, result = controller.status()
+                result = {**result, 'operatingSystem': detector.status(result['state'])}
+                return self.reply(status, result)
             if self.path != '/health':
                 return self.reply(404, {'error': 'Not found.'})
             self.reply(200, {'state': 'ready'})

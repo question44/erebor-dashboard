@@ -11,7 +11,10 @@ type Device = 'display' | 'ambilight';
 type DeviceState = 'on' | 'off' | 'mixed' | 'unknown';
 interface DeviceStatus { state: DeviceState; detail: string; }
 interface DeviceSnapshot { display: DeviceStatus; ambilight: DeviceStatus; }
-interface PowerStatus { state: 'awake' | 'asleep' | 'off' | 'unknown'; detail: string; }
+interface PowerStatus {
+  state: 'awake' | 'asleep' | 'off' | 'unknown'; detail: string;
+  operatingSystem?: { state: 'nixos' | 'windows' | 'unknown'; detail: string; };
+}
 interface Status { severity: 'info' | 'success' | 'error'; text: string; }
 
 const paths: Record<string, string> = {
@@ -155,6 +158,22 @@ class Dashboard {
     const state = this.power()?.state;
     return state ? { awake: 'Awake', asleep: 'Asleep', off: 'Powered off', unknown: 'Unknown' }[state]
       : this.checkingPower() ? 'Checking…' : 'Unavailable';
+  }
+
+  osLabel() {
+    if (this.power()?.state !== 'awake') return '';
+    const state = this.power()?.operatingSystem?.state;
+    return state === 'nixos' ? 'NixOS' : state === 'windows' ? 'Windows' : 'OS unknown';
+  }
+
+  hostLabel() {
+    return this.powerLabel() + (this.osLabel() ? ` · ${this.osLabel()}` : '');
+  }
+
+  hostDetail() {
+    const power = this.power();
+    if (!power) return this.checkingPower() ? 'Reading power state through NanoKVM…' : 'NanoKVM status unavailable. Check Tailscale connectivity.';
+    return power.detail + (power.state === 'awake' ? ' ' + (power.operatingSystem?.detail ?? 'OS detection unavailable.') : '');
   }
 
   canWake() {
