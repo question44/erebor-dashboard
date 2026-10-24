@@ -166,11 +166,12 @@ Optionally add `osPeers` to the NanoKVM helper's private `config.json`:
 Get IDs, addresses and OS values from `tailscale status --json`. Configure only
 the native installations on the host, excluding VMs. Each OS must run Tailscale
 with a separate identity. No additional Windows service is needed. The helper
-requires the `tailscale` CLI and permission to query/ping peers. While the LED
+uses tailscaled’s local Unix socket at `/var/run/tailscale/tailscaled.sock`
+with permission to query/ping peers, avoiding CLI startup overhead. While the LED
 reports awake, it verifies the pinned identity/address/OS and sends a fresh
 TSMP ping to each configured peer, with bounded timeouts. Online flags and old
 handshakes are not used as proof. Exactly one reply identifies the OS; no reply,
-conflicting replies or errors produce unknown. These are independent network
+conflicting replies or unavailable identity data produce unknown. These are independent network
 observations, not hardware attestation; reconfigure if an identity is replaced.
 `GET /status` includes `operatingSystem: {state, detail}` (`nixos`, `windows`, or
 `unknown`). The header shows e.g. `Awake · NixOS`; sleep/off hides the OS, and

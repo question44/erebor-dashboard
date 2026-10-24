@@ -1,5 +1,4 @@
 import json
-import subprocess
 import threading
 import unittest
 from http.client import HTTPConnection
@@ -21,11 +20,12 @@ class OSTests(unittest.TestCase):
         self.detector = OSDetector(self.peers)
 
     def probe(self, replies):
-        def run(command, **kwargs):
-            if command[1] == 'status':
-                return Mock(stdout=json.dumps(self.network))
-            return Mock(returncode=0 if command[-1] in replies else 1)
-        with patch('wake.subprocess.run', side_effect=run):
+        def request(method, path):
+            if path == 'status':
+                return self.network
+            ip = path.split('ip=')[1].split('&')[0]
+            return {'NodeIP': ip, 'Err': '' if ip in replies else 'timeout', 'LatencySeconds': 0.01}
+        with patch.object(self.detector, 'request', side_effect=request):
             return self.detector.status('awake')['state']
 
     def test_only_fresh_responder_identifies_os(self):
@@ -36,7 +36,7 @@ class OSTests(unittest.TestCase):
         self.assertEqual(self.probe(set()), 'unknown')  # Never retain a previous success.
 
     def test_no_probe_for_sleep_off_or_unknown_power(self):
-        with patch('wake.subprocess.run') as run:
+        with patch.object(self.detector, 'request') as run:
             for state in ['asleep', 'off', 'unknown']:
                 self.assertEqual(self.detector.status(state)['state'], 'unknown')
             run.assert_not_called()
@@ -49,21 +49,46 @@ class OSTests(unittest.TestCase):
                 self.assertEqual(self.probe({'100.64.0.1'}), 'unknown')
                 node[key] = previous
 
-    def test_daemon_and_probe_errors_fail_to_unknown(self):
-        for failure in [OSError('missing'), subprocess.TimeoutExpired('tailscale', 2),
-                        subprocess.CalledProcessError(1, 'tailscale')]:
-            with patch('wake.subprocess.run', side_effect=failure):
+    def test_daemon_errors_fail_to_unknown(self):
+        for failure in [OSError('missing'), TimeoutError('timeout'), ValueError('invalid json')]:
+            with patch.object(self.detector, 'request', side_effect=failure):
                 self.assertEqual(self.detector.status('awake')['state'], 'unknown')
         self.network['BackendState'] = 'Stopped'
         self.assertEqual(self.probe({'100.64.0.1'}), 'unknown')
 
-    def test_probe_timeout_and_malformed_status_fail_to_unknown(self):
-        with patch('wake.subprocess.run', side_effect=[Mock(stdout=json.dumps(self.network)),
-                   subprocess.TimeoutExpired('tailscale', 2), Mock(returncode=1)]):
-            self.assertEqual(self.detector.status('awake')['state'], 'unknown')
-        for invalid in ['{}', 'null', 'not json']:
-            with patch('wake.subprocess.run', return_value=Mock(stdout=invalid)):
+    def test_probe_timeout_does_not_hide_other_os_and_malformed_status_is_unknown(self):
+        def request(method, path):
+            if path == 'status':
+                return self.network
+            if '100.64.0.1' in path:
+                return {'NodeIP': '100.64.0.1', 'Err': '', 'LatencySeconds': 0.01}
+            raise TimeoutError('offline Windows')
+        with patch.object(self.detector, 'request', side_effect=request):
+            self.assertEqual(self.detector.status('awake')['state'], 'nixos')
+        for invalid in [{}, None, []]:
+            with patch.object(self.detector, 'request', return_value=invalid):
                 self.assertEqual(self.detector.status('awake')['state'], 'unknown')
+
+    def test_probe_error_wrong_address_or_missing_latency_is_not_a_response(self):
+        for probe in [{}, {'Err': 'no reply'},
+                      {'NodeIP': '100.64.0.3', 'Err': '', 'LatencySeconds': 0.01},
+                      {'NodeIP': '100.64.0.1', 'Err': ''}]:
+            with patch.object(self.detector, 'request', side_effect=lambda method, path:
+                              self.network if path == 'status' else probe):
+                self.assertEqual(self.detector.status('awake')['state'], 'unknown')
+
+    def test_local_api_uses_unix_socket_and_closes_on_failure(self):
+        with patch('wake.socket.socket') as socket, patch('wake.HTTPConnection') as connection:
+            response = connection.return_value.getresponse.return_value
+            response.status = 200
+            response.read.return_value = b'{"BackendState":"Running"}'
+            self.assertEqual(self.detector.request('GET', 'status'), {'BackendState': 'Running'})
+            socket.return_value.connect.assert_called_once_with('/var/run/tailscale/tailscaled.sock')
+            connection.return_value.request.assert_called_once_with('GET', '/localapi/v0/status')
+            response.status = 403
+            with self.assertRaises(OSError):
+                self.detector.request('GET', 'status')
+            self.assertEqual(connection.return_value.close.call_count, 2)
 
 
 class PowerTests(unittest.TestCase):

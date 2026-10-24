@@ -4,9 +4,11 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor
 import json
 import signal
-import subprocess
+import socket
 import threading
 import time
+from http.client import HTTPConnection, HTTPException
+from urllib.parse import urlencode
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -20,6 +22,21 @@ class OSDetector:
     def __init__(self, peers):
         self.peers = peers
 
+    def request(self, method, path):
+        # Avoid launching the large Go CLI on memory-constrained NanoKVM hardware.
+        connection = HTTPConnection('local-tailscaled.sock', timeout=2)
+        try:
+            connection.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            connection.sock.settimeout(2)
+            connection.sock.connect('/var/run/tailscale/tailscaled.sock')
+            connection.request(method, '/localapi/v0/' + path)
+            response = connection.getresponse()
+            if response.status != 200:
+                raise OSError('Tailscale local API unavailable')
+            return json.loads(response.read(1024 * 1024))
+        finally:
+            connection.close()
+
     def status(self, power_state):
         unknown = {'state': 'unknown', 'detail': 'No operating system responded.'}
         if power_state != 'awake':
@@ -27,9 +44,7 @@ class OSDetector:
         if not self.peers:
             return {'state': 'unknown', 'detail': 'No OS identities configured.'}
         try:
-            result = subprocess.run(['tailscale', 'status', '--json'], capture_output=True,
-                                    text=True, timeout=2, check=True)
-            network = json.loads(result.stdout)
+            network = self.request('GET', 'status')
             if network['BackendState'] != 'Running':
                 return unknown
             nodes = {node['ID']: node for node in network['Peer'].values()}
@@ -40,10 +55,14 @@ class OSDetector:
                 if (peer['ip'] not in node.get('TailscaleIPs', [])
                         or node.get('OS') != peer['tailscaleOS']):
                     return None
-                probe = subprocess.run(['tailscale', 'ping', '--tsmp', '--c=1',
-                                        '--timeout=1s', peer['ip']], capture_output=True,
-                                       text=True, timeout=2)
-                return peer['state'] if probe.returncode == 0 else None
+                try:
+                    probe = self.request('POST', 'ping?' + urlencode({'ip': peer['ip'], 'type': 'TSMP'}))
+                    return peer['state'] if (probe.get('Err') == ''
+                        and probe.get('NodeIP') == peer['ip']
+                        and isinstance(probe.get('LatencySeconds'), (int, float))
+                        and probe['LatencySeconds'] > 0) else None
+                except (OSError, ValueError, TypeError, AttributeError, HTTPException):
+                    return None
 
             with ThreadPoolExecutor(max_workers=2) as pool:
                 replies = list(filter(None, pool.map(responds, self.peers)))
@@ -51,7 +70,7 @@ class OSDetector:
                 return {'state': replies[0], 'detail': 'Configured OS identity answered a fresh Tailscale probe.'}
             if len(replies) > 1:
                 return {'state': 'unknown', 'detail': 'Multiple OS identities responded; running OS is ambiguous.'}
-        except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError):
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, HTTPException):
             pass
         return unknown
 
