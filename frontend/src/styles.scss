@@ -40,6 +40,7 @@ h2 { font-size: 1.25rem; font-weight: 600; margin: 0 0 16px; }
 .services { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .service.mat-mdc-button { display: flex; height: 100%; min-width: 0; padding: 20px; border-radius: 20px; background: var(--paper); color: var(--ink); text-align: left; text-decoration: none; justify-content: flex-start; white-space: normal; letter-spacing: normal; }
 .service.mat-mdc-button { @include mat.button-overrides((text-label-text-color: var(--ink))); }
+.service.unavailable { opacity: .4; cursor: default; }
 .service .mdc-button__label { width: 100%; }
 .service-content { display: flex; align-items: center; gap: 16px; width: 100%; }
 .service-icon { display: grid; place-items: center; padding: 10px; border-radius: 16px; background: var(--icon-bg); color: var(--primary); }

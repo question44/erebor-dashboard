@@ -182,6 +182,8 @@ require positively detected awake NixOS. Windows, unknown, checking, unavailable
 sleep and off disable those actions, including confirmation and send handlers.
 Wake up remains governed by the power LED. Deployments without that independent
 connection retain their existing host API controls.
+Service cards follow the same OS availability rule and lose their navigation
+targets while disabled, including keyboard navigation.
 
 `GET /health` through Serve checks identity and service availability without
 touching GPIO. Run `python3 -m unittest discover -s nanokvm -v` for mocked

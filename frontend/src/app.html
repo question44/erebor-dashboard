@@ -64,7 +64,8 @@
     <h2 id="services-title">Services</h2>
     <div class="services">
       @for (service of services; track service.id) {
-        <a mat-button class="service" [id]="service.id" [href]="service.url">
+        <a mat-button class="service" [class.unavailable]="!hostAvailable()" [id]="service.id"
+          [disabled]="!hostAvailable()" [href]="hostAvailable() ? service.url : null">
           <span class="service-content">
             <span class="service-icon"><erebor-icon [name]="service.icon" /></span>
             <span class="service-text"><span class="service-title">{{ service.label }}</span><span class="description">{{ service.description }}</span></span>

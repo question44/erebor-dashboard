@@ -184,6 +184,10 @@ class Dashboard {
   canExecute(action: Action | null) {
     if (!action || this.busy() || !this.online()) return false;
     if (action.id === 'wake') return this.canWake();
+    return this.hostAvailable();
+  }
+
+  hostAvailable() {
     return !this.hasWake || (this.power()?.state === 'awake'
       && this.power()?.operatingSystem?.state === 'nixos');
   }
