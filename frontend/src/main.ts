@@ -157,6 +157,11 @@ class Dashboard {
       : this.checkingPower() ? 'Checking…' : 'Unavailable';
   }
 
+  canWake() {
+    const state = this.power()?.state;
+    return state === 'asleep' || state === 'off';
+  }
+
   async refreshPower() {
     if (!this.hasWake || !settings.wakeUrl || this.powerRequest || !this.online() || document.hidden || this.busy()) return;
     const controller = new AbortController();

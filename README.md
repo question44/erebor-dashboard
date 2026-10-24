@@ -149,8 +149,9 @@ same GPIO independently; avoid using them concurrently.
 `GET /status` samples the LED without pressing the button and reports `awake`
 (steady on), `asleep` (blinking), `off` (unlit), or `unknown` (unreadable).
 The frontend polls this independently of the host API every 10 seconds, clears
-stale readings on connection/visibility changes, and disables Wake up when the
-LED indicates awake. An unreachable NanoKVM is shown as unavailable, never
+stale readings on connection/visibility changes, and enables Wake up only when
+the LED indicates asleep or off. Awake, unknown, checking and unavailable states
+keep the button disabled. An unreachable NanoKVM is shown as unavailable, never
 assumed asleep. LED states describe motherboard signals, not OS health.
 
 `GET /health` through Serve checks identity and service availability without

@@ -50,7 +50,7 @@
     <div class="actions">
       @for (action of systemActions; track action.id) {
         <button mat-button class="action" [class.danger]="action.danger"
-          [attr.data-action]="action.id" [disabled]="busy() || !online() || (action.id === 'wake' && power()?.state === 'awake')" (click)="activate(action)">
+          [attr.data-action]="action.id" [disabled]="busy() || !online() || (action.id === 'wake' && !canWake())" (click)="activate(action)">
           <span class="action-content"><erebor-icon [name]="action.icon" /><span>{{ action.label }}</span></span>
         </button>
       }
