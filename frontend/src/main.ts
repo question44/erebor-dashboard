@@ -181,6 +181,13 @@ class Dashboard {
     return state === 'asleep' || state === 'off';
   }
 
+  canExecute(action: Action | null) {
+    if (!action || this.busy() || !this.online()) return false;
+    if (action.id === 'wake') return this.canWake();
+    return !this.hasWake || (this.power()?.state === 'awake'
+      && this.power()?.operatingSystem?.state === 'nixos');
+  }
+
   async refreshPower() {
     if (!this.hasWake || !settings.wakeUrl || this.powerRequest || !this.online() || document.hidden || this.busy()) return;
     const controller = new AbortController();
@@ -256,7 +263,7 @@ class Dashboard {
   }
 
   activate(action: Action) {
-    if (this.busy() || !navigator.onLine) return;
+    if (!this.canExecute(action)) return;
     if (!action.confirm) { void this.execute(action); return; }
     this.confirmation.set(action);
     const ref = this.dialog.open(this.confirmDialog, { ariaLabelledBy: 'confirm-title', ariaDescribedBy: 'confirm-description', maxWidth: 'calc(100vw - 32px)' });
@@ -267,8 +274,8 @@ class Dashboard {
   }
 
   async execute(action: Action) {
+    if (!this.canExecute(action)) return;
     if (action.id === 'wake') { await this.wake(); return; }
-    if (this.busy() || !navigator.onLine) return;
     this.busy.set(true);
     this.clearDevices();
     this.clearPower();
@@ -295,7 +302,7 @@ class Dashboard {
   }
 
   async wake() {
-    if (this.busy() || !navigator.onLine || !settings.wakeUrl) return;
+    if (this.busy() || !navigator.onLine || !settings.wakeUrl || !this.canWake()) return;
     this.busy.set(true);
     this.clearDevices();
     this.clearPower();

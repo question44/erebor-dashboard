@@ -39,7 +39,7 @@
               <button mat-button class="device-action" [class.off]="action.off"
                 [class.current]="devices()?.[device.id].state === (action.off ? 'off' : 'on')"
                 [attr.data-action]="action.id" [attr.aria-label]="action.label" [attr.aria-describedby]="device.id + '-detail'"
-                [disabled]="busy() || !online()" (click)="activate(action)">
+                [disabled]="!canExecute(action)" (click)="activate(action)">
                 Turn {{ action.off ? 'off' : 'on' }}
               </button>
             }
@@ -50,7 +50,7 @@
     <div class="actions">
       @for (action of systemActions; track action.id) {
         <button mat-button class="action" [class.danger]="action.danger"
-          [attr.data-action]="action.id" [disabled]="busy() || !online() || (action.id === 'wake' && !canWake())" (click)="activate(action)">
+          [attr.data-action]="action.id" [disabled]="!canExecute(action)" (click)="activate(action)">
           <span class="action-content"><erebor-icon [name]="action.icon" /><span>{{ action.label }}</span></span>
         </button>
       }
@@ -80,7 +80,7 @@
     <mat-dialog-content id="confirm-description">{{ confirmation()?.confirm }}</mat-dialog-content>
     <mat-dialog-actions align="end">
       <button mat-button [mat-dialog-close]="false" cdkFocusInitial>Cancel</button>
-      <button mat-flat-button [class.danger]="confirmation()?.danger" [disabled]="!online() || busy()" [mat-dialog-close]="true">{{ confirmation()?.label }}</button>
+      <button mat-flat-button [class.danger]="confirmation()?.danger" [disabled]="!canExecute(confirmation())" [mat-dialog-close]="true">{{ confirmation()?.label }}</button>
     </mat-dialog-actions>
   </ng-template>
 </main>

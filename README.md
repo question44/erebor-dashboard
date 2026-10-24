@@ -177,6 +177,11 @@ observations, not hardware attestation; reconfigure if an identity is replaced.
 `unknown`). The header shows e.g. `Awake · NixOS`; sleep/off hides the OS, and
 failed requests clear prior readings. The same cached PWA works when Windows
 is running; first load/install and configuration caching must happen on NixOS.
+When the independent wake/status connection is configured, all host API actions
+require positively detected awake NixOS. Windows, unknown, checking, unavailable,
+sleep and off disable those actions, including confirmation and send handlers.
+Wake up remains governed by the power LED. Deployments without that independent
+connection retain their existing host API controls.
 
 `GET /health` through Serve checks identity and service availability without
 touching GPIO. Run `python3 -m unittest discover -s nanokvm -v` for mocked
