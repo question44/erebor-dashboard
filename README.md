@@ -185,6 +185,15 @@ connection retain their existing host API controls.
 Service cards follow the same OS availability rule and lose their navigation
 targets while disabled, including keyboard navigation.
 
+For fast NixOS detection, the browser also requests `GET /api/control/os` in
+parallel with NanoKVM. This network-only, no-store endpoint checks the host's
+OS release without querying devices or sampling GPIO. A fresh NixOS reply
+immediately shows `Awake · NixOS`, enables host controls/services and prevents
+Wake. The tooltip identifies the direct API confirmation while the motherboard
+LED check continues. Missing/failed/non-NixOS replies do not identify Windows;
+NanoKVM remains the independent fallback. Direct confirmations clear on
+offline/visibility changes and failed refreshes, and aborted replies are ignored.
+
 `GET /health` through Serve checks identity and service availability without
 touching GPIO. Run `python3 -m unittest discover -s nanokvm -v` for mocked
 GPIO and HTTP boundary tests (also included in flake checks). To disable:

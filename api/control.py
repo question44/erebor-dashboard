@@ -3,6 +3,7 @@
 import ipaddress
 import json
 import os
+import platform
 import socket
 import subprocess
 import threading
@@ -116,6 +117,10 @@ class DeviceStatus(BaseModel):
 class ControlStatus(BaseModel):
     display: DeviceStatus
     ambilight: DeviceStatus
+
+
+class HostOS(BaseModel):
+    state: Literal["nixos", "unknown"]
 
 
 def display_status():
@@ -286,6 +291,15 @@ async def http_error(request: Request, exc: HTTPException):
 @app.get("/api/control/status", response_model=ControlStatus)
 def read_control_status():
     return ControlStatus(display=display_status(), ambilight=ambilight_status())
+
+
+@app.get("/api/control/os", response_model=HostOS)
+def read_host_os():
+    try:
+        nixos = platform.freedesktop_os_release().get("ID") == "nixos"
+    except OSError:
+        nixos = False
+    return HostOS(state="nixos" if nixos else "unknown")
 
 
 @app.post("/api/control", response_model=ControlResult,

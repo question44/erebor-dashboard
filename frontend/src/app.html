@@ -3,7 +3,7 @@
     <div class="host-heading">
       <h1>{{ settings.title }}</h1>
       @if (hasWake) {
-        <span class="host-status" role="status" [attr.data-state]="power()?.state ?? 'unknown'"
+        <span class="host-status" role="status" [attr.data-state]="nixosResponding() ? 'awake' : power()?.state ?? 'unknown'"
           [attr.aria-label]="'System: ' + hostLabel()"
           [title]="hostDetail()">
           <span class="status-led" aria-hidden="true"></span>

@@ -91,6 +91,7 @@ class Dashboard {
   readonly systemActions = this.actions.filter(action => !this.deviceControls.some(device => device.actions.includes(action)));
   readonly hasWake = this.actions.some(action => action.id === 'wake');
   readonly power = signal<PowerStatus | null>(null);
+  readonly nixosResponding = signal(false);
   readonly checkingPower = signal(false);
   private powerRequest: AbortController | null = null;
   readonly online = signal(navigator.onLine);
@@ -151,16 +152,19 @@ class Dashboard {
     this.powerRequest?.abort();
     this.powerRequest = null;
     this.power.set(null);
+    this.nixosResponding.set(false);
     this.checkingPower.set(false);
   }
 
   powerLabel() {
+    if (this.nixosResponding()) return 'Awake';
     const state = this.power()?.state;
     return state ? { awake: 'Awake', asleep: 'Asleep', off: 'Powered off', unknown: 'Unknown' }[state]
       : this.checkingPower() ? 'Checking…' : 'Unavailable';
   }
 
   osLabel() {
+    if (this.nixosResponding()) return 'NixOS';
     if (this.power()?.state !== 'awake') return '';
     const state = this.power()?.operatingSystem?.state;
     return state === 'nixos' ? 'NixOS' : state === 'windows' ? 'Windows' : 'OS unknown';
@@ -172,13 +176,14 @@ class Dashboard {
 
   hostDetail() {
     const power = this.power();
+    if (this.nixosResponding()) return 'NixOS confirmed by a fresh host API response. ' + (power?.detail ?? 'Checking motherboard power LED…');
     if (!power) return this.checkingPower() ? 'Reading power state through NanoKVM…' : 'NanoKVM status unavailable. Check Tailscale connectivity.';
     return power.detail + (power.state === 'awake' ? ' ' + (power.operatingSystem?.detail ?? 'OS detection unavailable.') : '');
   }
 
   canWake() {
     const state = this.power()?.state;
-    return state === 'asleep' || state === 'off';
+    return !this.nixosResponding() && (state === 'asleep' || state === 'off');
   }
 
   canExecute(action: Action | null) {
@@ -188,7 +193,7 @@ class Dashboard {
   }
 
   hostAvailable() {
-    return !this.hasWake || (this.power()?.state === 'awake'
+    return !this.hasWake || this.nixosResponding() || (this.power()?.state === 'awake'
       && this.power()?.operatingSystem?.state === 'nixos');
   }
 
@@ -197,6 +202,7 @@ class Dashboard {
     const controller = new AbortController();
     this.powerRequest = controller;
     this.checkingPower.set(true);
+    const direct = this.refreshNixOS(controller);
     try {
       const response = await fetch(new URL('status', settings.wakeUrl), {
         mode: 'cors', credentials: 'omit', cache: 'no-store',
@@ -209,11 +215,24 @@ class Dashboard {
     } catch {
       if (!controller.signal.aborted) this.power.set(null);
     } finally {
+      await direct;
       if (this.powerRequest === controller) {
         this.powerRequest = null;
         this.checkingPower.set(false);
       }
     }
+  }
+
+  private async refreshNixOS(controller: AbortController) {
+    let confirmed = false;
+    try {
+      const response = await fetch('/api/control/os', {
+        cache: 'no-store',
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(2500)]),
+      });
+      confirmed = response.ok && (await response.json()).state === 'nixos';
+    } catch { /* NanoKVM still detects Windows and unavailable host APIs. */ }
+    if (!controller.signal.aborted) this.nixosResponding.set(confirmed);
   }
 
   async refreshDevices() {
