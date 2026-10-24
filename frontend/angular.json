@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "newProjectRoot": "projects",
+  "projects": {
+    "erebor": {
+      "projectType": "application",
+      "root": "",
+      "sourceRoot": "src",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "options": {
+            "browser": "src/main.ts",
+            "index": "index.html",
+            "tsConfig": "tsconfig.json",
+            "outputPath": {
+              "base": "dist",
+              "browser": ""
+            },
+            "assets": [
+              {
+                "glob": "**/*",
+                "input": "public",
+                "output": "/"
+              }
+            ],
+            "styles": [
+              "src/styles.scss"
+            ],
+            "outputHashing": "all",
+            "budgets": [
+              {
+                "type": "initial",
+                "maximumWarning": "650kB",
+                "maximumError": "1MB"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "cli": {
+    "analytics": false
+  }
+}

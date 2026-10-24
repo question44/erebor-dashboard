@@ -1,0 +1,59 @@
+@use '@angular/material' as mat;
+html {
+  color-scheme: light dark;
+  @include mat.theme((color: mat.$violet-palette, typography: (plain-family: 'system-ui, -apple-system, "Segoe UI", sans-serif', brand-family: 'system-ui, -apple-system, "Segoe UI", sans-serif'), density: 0));
+  --page: #fdf8ff; --paper: #f3edf7; --primary: #6750a4; --secondary: #625b71; --ink: #1d1b20; --icon-bg: #e8def8; --error: #ba1a1a;
+  background: var(--page); color: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  html { --page: #141218; --paper: #211f26; --primary: #d0bcff; --secondary: #cac4d0; --ink: #e6e0e9; --icon-bg: #363043; --error: #ffb4ab; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+main { max-width: 900px; margin: auto; padding: 48px 24px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+h1 { font-size: clamp(2rem, 8vw, 3rem); font-weight: 650; letter-spacing: -.04em; margin: 0; }
+h2 { font-size: 1.25rem; font-weight: 600; margin: 0 0 16px; }
+.intro { color: var(--secondary); margin: 8px 0 32px; }
+.install { margin-bottom: 24px; }
+.actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; }
+.action.mat-mdc-button { height: auto; min-height: 104px; min-width: 0; padding: 16px 4px; border-radius: 24px; background: var(--paper); color: var(--primary); }
+.action-content { display: flex; flex-direction: column; align-items: center; gap: 10px; font-size: .8rem; font-weight: 600; letter-spacing: normal; white-space: normal; line-height: 1.35; }
+.action-content erebor-icon { width: 26px; height: 26px; }
+.action.mat-mdc-button { @include mat.button-overrides((text-label-text-color: var(--primary))); }
+.action.off { @include mat.button-overrides((text-label-text-color: var(--secondary))); }
+.action.danger { @include mat.button-overrides((text-label-text-color: var(--error))); }
+.action:disabled { opacity: .4; }
+.notice { border-radius: 12px; padding: 16px; background: var(--paper); margin: 16px 0 0; }
+.notice.error { color: var(--error); }
+.notice.success { color: light-dark(#236b31, #a0d5a6); }
+.notice.warning { margin-bottom: 24px; }
+.services-section { margin-top: 32px; }
+.services { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.service.mat-mdc-button { display: flex; height: 100%; min-width: 0; padding: 20px; border-radius: 20px; background: var(--paper); color: var(--ink); text-align: left; text-decoration: none; justify-content: flex-start; white-space: normal; letter-spacing: normal; }
+.service.mat-mdc-button { @include mat.button-overrides((text-label-text-color: var(--ink))); }
+.service .mdc-button__label { width: 100%; }
+.service-content { display: flex; align-items: center; gap: 16px; width: 100%; }
+.service-icon { display: grid; place-items: center; padding: 10px; border-radius: 16px; background: var(--icon-bg); color: var(--primary); }
+.service-text { flex: 1; min-width: 0; }
+.service-title { display: block; font-size: 1rem; font-weight: 650; line-height: 1.75; }
+.description { display: block; color: var(--secondary); font-size: .875rem; font-weight: 400; line-height: 1.45; }
+.arrow { width: 18px; height: 18px; color: var(--secondary); }
+footer { color: var(--secondary); font-size: .75rem; margin-top: 32px; line-height: 1.6; }
+button:focus-visible, a:focus-visible { outline: 3px solid var(--primary); outline-offset: 3px; }
+.mat-mdc-unelevated-button.danger { @include mat.button-overrides((filled-container-color: var(--error), filled-label-text-color: light-dark(white, #690005))); }
+@media (max-width: 599px) {
+  main { padding: 24px; }
+  .actions { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .services { grid-template-columns: 1fr; }
+}
+
+.device-status { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.state-summary { padding: 16px; border-radius: 20px; background: var(--paper); min-width: 0; }
+.state-heading { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.state-heading erebor-icon { color: var(--primary); }
+.state-heading strong { margin-left: auto; font-size: .875rem; }
+.state-heading strong[data-state="on"] { color: light-dark(#236b31, #a0d5a6); }
+.state-heading strong[data-state="mixed"] { color: light-dark(#805600, #f1cb77); }
+.state-summary p { margin: 8px 0 0; font-size: .8rem; line-height: 1.5; color: var(--secondary); }
+@media (max-width: 599px) { .device-status { grid-template-columns: 1fr; } }

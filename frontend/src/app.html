@@ -1,0 +1,64 @@
+<main>
+  <header>
+    <h1>{{ settings.title }}</h1>
+    <mat-chip-set aria-label="Connection"><mat-chip>{{ online() ? 'Local & tailnet' : 'Offline' }}</mat-chip></mat-chip-set>
+  </header>
+  <p class="intro">{{ settings.description }}</p>
+  @if (installPrompt()) {
+    <button mat-stroked-button class="install" (click)="install()">Install {{ settings.title }}</button>
+  }
+  @if (!online()) {
+    <p class="notice warning" role="status">Offline — reconnect to use services and controls.</p>
+  }
+  @if (actions.length) {
+  <section aria-labelledby="quick-actions-title">
+    <h2 id="quick-actions-title">Quick actions</h2>
+    <div class="device-status" aria-label="Live device status" aria-live="polite">
+      @for (device of statusDevices; track device) {
+        <div class="state-summary" [attr.data-device]="device">
+          <div class="state-heading">
+            <erebor-icon [name]="device === 'display' ? 'display' : 'light'" />
+            <span>{{ device === 'display' ? 'Display' : 'Ambilight' }}</span>
+            <strong [attr.data-state]="devices()?.[device].state ?? 'unknown'">{{ deviceLabel(device) }}</strong>
+          </div>
+          <p>{{ deviceDetail(device) }}</p>
+        </div>
+      }
+    </div>
+    <div class="actions">
+      @for (action of actions; track action.id) {
+        <button mat-button class="action" [class.danger]="action.danger" [class.off]="action.off"
+          [attr.data-action]="action.id" [disabled]="busy() || !online()" (click)="activate(action)">
+          <span class="action-content"><erebor-icon [name]="action.icon" /><span>{{ action.label }}</span></span>
+        </button>
+      }
+    </div>
+    @if (status(); as message) {
+      <p class="notice" [class.error]="message.severity === 'error'" [class.success]="message.severity === 'success'" role="status" aria-live="polite">{{ message.text }}</p>
+    }
+  </section>
+  }
+  <section aria-labelledby="services-title" class="services-section">
+    <h2 id="services-title">Services</h2>
+    <div class="services">
+      @for (service of services; track service.id) {
+        <a mat-button class="service" [id]="service.id" [href]="service.url">
+          <span class="service-content">
+            <span class="service-icon"><erebor-icon [name]="service.icon" /></span>
+            <span class="service-text"><span class="service-title">{{ service.label }}</span><span class="description">{{ service.description }}</span></span>
+            <erebor-icon name="arrow" class="arrow" />
+          </span>
+        </a>
+      }
+    </div>
+  </section>
+  <footer>Install from your browser menu. On iPhone or iPad, use Share → Add to Home Screen.</footer>
+  <ng-template #confirmDialog>
+    <h2 mat-dialog-title id="confirm-title">{{ confirmation()?.label }}?</h2>
+    <mat-dialog-content id="confirm-description">{{ confirmation()?.confirm }}</mat-dialog-content>
+    <mat-dialog-actions align="end">
+      <button mat-button [mat-dialog-close]="false" cdkFocusInitial>Cancel</button>
+      <button mat-flat-button [class.danger]="confirmation()?.danger" [disabled]="!online() || busy()" [mat-dialog-close]="true">{{ confirmation()?.label }}</button>
+    </mat-dialog-actions>
+  </ng-template>
+</main>
