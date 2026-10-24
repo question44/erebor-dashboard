@@ -7,6 +7,7 @@ import { MatChipsModule } from '@angular/material/chips';
 
 interface Action { id: string; label: string; icon: string; off?: boolean; danger?: boolean; confirm?: string; }
 interface InstallPrompt extends Event { prompt(): Promise<void>; }
+type Device = 'display' | 'ambilight';
 type DeviceState = 'on' | 'off' | 'mixed' | 'unknown';
 interface DeviceStatus { state: DeviceState; detail: string; }
 interface DeviceSnapshot { display: DeviceStatus; ambilight: DeviceStatus; }
@@ -74,7 +75,13 @@ class Dashboard {
   readonly settings = settings;
   readonly actions = availableActions().filter(action => settings.actions.includes(action.id));
   readonly services = services;
-  readonly statusDevices: ('display' | 'ambilight')[] = ['display', 'ambilight'];
+  readonly deviceControls = (['display', 'ambilight'] as const).map(device => ({
+    id: device,
+    label: device === 'display' ? 'Display' : 'Ambilight',
+    icon: device === 'display' ? 'display' : 'light',
+    actions: this.actions.filter(action => action.id.startsWith(`${device}-`)),
+  })).filter(device => device.actions.length);
+  readonly systemActions = this.actions.filter(action => !this.deviceControls.some(device => device.actions.includes(action)));
   readonly online = signal(navigator.onLine);
   readonly busy = signal(false);
   readonly status = signal<Status | null>(null);
@@ -145,14 +152,14 @@ class Dashboard {
     }
   }
 
-  deviceLabel(device: 'display' | 'ambilight') {
+  deviceLabel(device: Device) {
     if (!this.online()) return 'Offline';
     const state = this.devices()?.[device].state;
     if (!state) return this.checkingDevices() ? 'Checking…' : 'Unknown';
     return { on: 'On', off: 'Off', mixed: 'Mixed', unknown: 'Unknown' }[state];
   }
 
-  deviceDetail(device: 'display' | 'ambilight') {
+  deviceDetail(device: Device) {
     if (!this.online()) return 'Reconnect to refresh status.';
     return this.devices()?.[device].detail ?? (this.checkingDevices() ? 'Reading current state…' : 'Status unavailable.');
   }

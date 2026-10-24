@@ -13,21 +13,33 @@
   @if (actions.length) {
   <section aria-labelledby="quick-actions-title">
     <h2 id="quick-actions-title">Quick actions</h2>
-    <div class="device-status" aria-label="Live device status" aria-live="polite">
-      @for (device of statusDevices; track device) {
-        <div class="state-summary" [attr.data-device]="device">
-          <div class="state-heading">
-            <erebor-icon [name]="device === 'display' ? 'display' : 'light'" />
-            <span>{{ device === 'display' ? 'Display' : 'Ambilight' }}</span>
-            <strong [attr.data-state]="devices()?.[device].state ?? 'unknown'">{{ deviceLabel(device) }}</strong>
+    <div class="device-controls">
+      @for (device of deviceControls; track device.id) {
+        <div class="device-control" [attr.data-device]="device.id" role="group" [attr.aria-label]="device.label">
+          <div class="state-summary" aria-live="polite">
+            <div class="state-heading">
+              <erebor-icon [name]="device.icon" />
+              <span>{{ device.label }}</span>
+              <strong [attr.data-state]="devices()?.[device.id].state ?? 'unknown'">{{ deviceLabel(device.id) }}</strong>
+            </div>
+            <p [id]="device.id + '-detail'">{{ deviceDetail(device.id) }}</p>
           </div>
-          <p>{{ deviceDetail(device) }}</p>
+          <div class="device-actions">
+            @for (action of device.actions; track action.id) {
+              <button mat-button class="device-action" [class.off]="action.off"
+                [class.current]="devices()?.[device.id].state === (action.off ? 'off' : 'on')"
+                [attr.data-action]="action.id" [attr.aria-label]="action.label" [attr.aria-describedby]="device.id + '-detail'"
+                [disabled]="busy() || !online()" (click)="activate(action)">
+                Turn {{ action.off ? 'off' : 'on' }}
+              </button>
+            }
+          </div>
         </div>
       }
     </div>
     <div class="actions">
-      @for (action of actions; track action.id) {
-        <button mat-button class="action" [class.danger]="action.danger" [class.off]="action.off"
+      @for (action of systemActions; track action.id) {
+        <button mat-button class="action" [class.danger]="action.danger"
           [attr.data-action]="action.id" [disabled]="busy() || !online()" (click)="activate(action)">
           <span class="action-content"><erebor-icon [name]="action.icon" /><span>{{ action.label }}</span></span>
         </button>

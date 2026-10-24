@@ -48,12 +48,18 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--primary); outli
   .services { grid-template-columns: 1fr; }
 }
 
-.device-status { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
-.state-summary { padding: 16px; border-radius: 20px; background: var(--paper); min-width: 0; }
+.device-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.device-control { display: flex; flex-direction: column; padding: 16px; border-radius: 20px; background: var(--paper); min-width: 0; }
+.state-summary { flex: 1; }
+.device-actions { display: flex; gap: 8px; margin-top: 16px; }
+.device-action.mat-mdc-button { flex: 1; min-height: 44px; border-radius: 12px; @include mat.button-overrides((text-label-text-color: var(--primary))); }
+.device-action.current { background: var(--icon-bg); }
+.device-action.off { @include mat.button-overrides((text-label-text-color: var(--secondary))); }
+.device-action:disabled { opacity: .4; }
 .state-heading { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .state-heading erebor-icon { color: var(--primary); }
 .state-heading strong { margin-left: auto; font-size: .875rem; }
 .state-heading strong[data-state="on"] { color: light-dark(#236b31, #a0d5a6); }
 .state-heading strong[data-state="mixed"] { color: light-dark(#805600, #f1cb77); }
 .state-summary p { margin: 8px 0 0; font-size: .8rem; line-height: 1.5; color: var(--secondary); }
-@media (max-width: 599px) { .device-status { grid-template-columns: 1fr; } }
+@media (max-width: 599px) { .device-controls { grid-template-columns: 1fr; } }
