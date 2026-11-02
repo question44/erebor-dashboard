@@ -123,11 +123,12 @@ class Dashboard {
     const poll = window.setInterval(() => {
       void this.refreshDevices();
       void this.refreshPower();
-      void this.refreshOutlet();
     }, 10000);
+    const outletPoll = window.setInterval(() => void this.refreshOutlet(), 5000);
     inject(DestroyRef).onDestroy(() => {
       scheme.removeEventListener('change', update);
       window.clearInterval(poll);
+      window.clearInterval(outletPoll);
       this.clearDevices();
       this.clearPower();
       this.clearOutlet();

@@ -139,6 +139,7 @@ class OutletReader:
         with self.lock:
             if self.cached is not None and time.monotonic() < self.expires:
                 return self.cached
+            started = time.monotonic()
             try:
                 query = subprocess.run(['/opt/tapo-query/tapo-query'], capture_output=True,
                                        text=True, check=True, timeout=22)
@@ -153,7 +154,7 @@ class OutletReader:
                                     'todayKwh': values[1] / 1000, 'monthKwh': values[2] / 1000}
             except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
                 self.cached = 503, {'error': 'Outlet reading unavailable.'}
-            self.expires = time.monotonic() + 8
+            self.expires = started + 4
             return self.cached
 
 
