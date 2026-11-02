@@ -3,6 +3,8 @@
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import json
+import math
+import subprocess
 import signal
 import socket
 import threading
@@ -125,8 +127,39 @@ class WakeController:
             self.lock.release()
 
 
-def handler(config, controller, detector=None):
+class OutletReader:
+    """Bounded read-only subprocess, shared briefly across dashboard clients."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.expires = 0
+        self.cached = None
+
+    def status(self):
+        with self.lock:
+            if self.cached is not None and time.monotonic() < self.expires:
+                return self.cached
+            try:
+                query = subprocess.run(['/opt/tapo-query/tapo-query'], capture_output=True,
+                                       text=True, check=True, timeout=22)
+                raw = json.loads(query.stdout)
+                energy = raw['energy']
+                values = [energy['current_power'], energy['today_energy'], energy['month_energy']]
+                if type(raw['on']) is not bool or any(
+                        type(value) not in (int, float) or not math.isfinite(value) or value < 0
+                        for value in values):
+                    raise ValueError('Invalid outlet telemetry')
+                self.cached = 200, {'on': raw['on'], 'watts': values[0] / 1000,
+                                    'todayKwh': values[1] / 1000, 'monthKwh': values[2] / 1000}
+            except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
+                self.cached = 503, {'error': 'Outlet reading unavailable.'}
+            self.expires = time.monotonic() + 8
+            return self.cached
+
+
+def handler(config, controller, detector=None, outlet=None):
     detector = detector or OSDetector(config.get('osPeers', []))
+    outlet = outlet or OutletReader()
     class Handler(BaseHTTPRequestHandler):
         def setup(self):
             super().setup()
@@ -152,13 +185,15 @@ def handler(config, controller, detector=None):
             return self.headers.get('Tailscale-User-Login') == config['login']
 
         def do_OPTIONS(self):
-            if self.path != '/wake' or self.headers.get('Origin') not in config['origins']:
+            if self.path not in {'/wake', '/outlet'} or self.headers.get('Origin') not in config['origins']:
                 return self.reply(403, {'error': 'Origin or path not allowed.'})
             self.reply(204)
 
         def do_GET(self):
             if not self.authorized():
                 return self.reply(403, {'error': 'Tailscale user not allowed.'})
+            if self.path == '/outlet' and config.get('outletEnabled') is True:
+                return self.reply(*outlet.status())
             if self.path == '/status':
                 status, result = controller.status()
                 result = {**result, 'operatingSystem': detector.status(result['state'])}

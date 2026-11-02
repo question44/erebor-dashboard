@@ -14,6 +14,22 @@
     <mat-chip-set aria-label="Connection"><mat-chip>{{ online() ? 'Local & tailnet' : 'Offline' }}</mat-chip></mat-chip-set>
   </header>
   <p class="intro">{{ settings.description }}</p>
+  @if (hasOutlet) {
+    <section class="outlet-panel" aria-labelledby="outlet-title">
+      <div class="outlet-heading"><h2 id="outlet-title">Power usage</h2>
+        <span>{{ !online() ? 'Offline' : outlet() ? (outlet()!.on ? 'Outlet on' : 'Outlet off') : checkingOutlet() ? 'Checking…' : 'Unavailable' }}</span>
+      </div>
+      @if (outlet(); as reading) {
+        <dl class="outlet-readings">
+          <div><dt>Now</dt><dd>{{ reading.watts.toFixed(1) }} <span>W</span></dd></div>
+          <div><dt>Today</dt><dd>{{ reading.todayKwh.toFixed(3) }} <span>kWh</span></dd></div>
+          <div><dt>This month</dt><dd>{{ reading.monthKwh.toFixed(3) }} <span>kWh</span></dd></div>
+        </dl>
+      } @else {
+        <p>{{ !online() ? 'Reconnect to refresh power usage.' : checkingOutlet() ? 'Reading the outlet…' : 'Could not read the outlet. Check NanoKVM connectivity.' }}</p>
+      }
+    </section>
+  }
   @if (installPrompt()) {
     <button mat-stroked-button class="install" (click)="install()">Install {{ settings.title }}</button>
   }

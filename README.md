@@ -112,6 +112,19 @@ The standalone command accepts environment variables `DASHBOARD_HOSTS` and
 
 ## NanoKVM ATX wake
 
+### Outlet energy readings
+
+Optional `settings.outletUrl` adds a read-only power panel with live watts and
+today/month energy in kWh. Point it at the NanoKVM helper's HTTPS `/outlet`
+endpoint and set `outletEnabled: true` in the helper's private config. Install
+`/opt/tapo-query/tapo-query` and its runtime credentials on NanoKVM first.
+The endpoint uses the same owner-only Tailscale identity check and CORS origins
+as wake/status. It runs only the fixed read-only binary, limits its runtime,
+shares readings for eight seconds, and returns only normalized telemetry.
+Failures show unavailable rather than retaining a previous reading. The UI
+refreshes every ten seconds while visible and online, independently of host OS
+or power state. Credentials never enter frontend configuration or responses.
+
 Add `wake` to frontend `settings.actions` and set `settings.wakeUrl` to an
 independent HTTPS endpoint, for example
 `https://<nanokvm-magicdns-name>:8443/wake`. This action goes directly from the

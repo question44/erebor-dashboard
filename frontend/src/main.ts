@@ -16,6 +16,7 @@ interface PowerStatus {
   operatingSystem?: { state: 'nixos' | 'windows' | 'unknown'; detail: string; };
 }
 interface Status { severity: 'info' | 'success' | 'error'; text: string; }
+interface OutletStatus { on: boolean; watts: number; todayKwh: number; monthKwh: number; }
 
 const paths: Record<string, string> = {
   display: 'M3 4h18v12H3z M8 20h8 M12 16v4',
@@ -49,6 +50,7 @@ interface Settings {
   title: string; description: string; domainSuffix: string;
   actions: string[]; services: Service[];
   wakeUrl?: string;
+  outletUrl?: string;
 }
 const settings: Settings = await fetch('/config.json').then(response => {
   if (!response.ok) throw new Error('Dashboard configuration unavailable');
@@ -90,6 +92,10 @@ class Dashboard {
   })).filter(device => device.actions.length);
   readonly systemActions = this.actions.filter(action => !this.deviceControls.some(device => device.actions.includes(action)));
   readonly hasWake = this.actions.some(action => action.id === 'wake');
+  readonly hasOutlet = settings.outletUrl?.startsWith('https://') ?? false;
+  readonly outlet = signal<OutletStatus | null>(null);
+  readonly checkingOutlet = signal(false);
+  private outletRequest: AbortController | null = null;
   readonly power = signal<PowerStatus | null>(null);
   readonly nixosResponding = signal(false);
   readonly checkingPower = signal(false);
@@ -113,15 +119,18 @@ class Dashboard {
     document.title = `${settings.title} services`;
     void this.refreshDevices();
     void this.refreshPower();
+    void this.refreshOutlet();
     const poll = window.setInterval(() => {
       void this.refreshDevices();
       void this.refreshPower();
+      void this.refreshOutlet();
     }, 10000);
     inject(DestroyRef).onDestroy(() => {
       scheme.removeEventListener('change', update);
       window.clearInterval(poll);
       this.clearDevices();
       this.clearPower();
+      this.clearOutlet();
     });
   }
 
@@ -131,14 +140,48 @@ class Dashboard {
     this.online.set(navigator.onLine);
     this.clearDevices();
     this.clearPower();
-    if (this.online()) { void this.refreshDevices(); void this.refreshPower(); }
+    this.clearOutlet();
+    if (this.online()) { void this.refreshDevices(); void this.refreshPower(); void this.refreshOutlet(); }
   }
 
   @HostListener('document:visibilitychange')
   visibilityChanged() {
     this.clearDevices();
     this.clearPower();
-    if (!document.hidden) { void this.refreshDevices(); void this.refreshPower(); }
+    this.clearOutlet();
+    if (!document.hidden) { void this.refreshDevices(); void this.refreshPower(); void this.refreshOutlet(); }
+  }
+
+  private clearOutlet() {
+    this.outletRequest?.abort();
+    this.outletRequest = null;
+    this.outlet.set(null);
+    this.checkingOutlet.set(false);
+  }
+
+  async refreshOutlet() {
+    if (!this.hasOutlet || !settings.outletUrl || this.outletRequest || !this.online() || document.hidden) return;
+    const controller = new AbortController();
+    this.outletRequest = controller;
+    this.checkingOutlet.set(true);
+    try {
+      const response = await fetch(settings.outletUrl, {
+        mode: 'cors', credentials: 'omit', cache: 'no-store',
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(25000)]),
+      });
+      if (!response.ok) throw new Error('Outlet unavailable');
+      const result: OutletStatus = await response.json();
+      if (typeof result.on !== 'boolean' || [result.watts, result.todayKwh, result.monthKwh]
+        .some(value => typeof value !== 'number' || !Number.isFinite(value) || value < 0)) throw new Error('Invalid outlet reading');
+      if (!controller.signal.aborted) this.outlet.set(result);
+    } catch {
+      if (!controller.signal.aborted) this.outlet.set(null);
+    } finally {
+      if (this.outletRequest === controller) {
+        this.outletRequest = null;
+        this.checkingOutlet.set(false);
+      }
+    }
   }
 
   private clearDevices() {
