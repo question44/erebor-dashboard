@@ -195,10 +195,13 @@ class Dispatch(unittest.TestCase):
     def test_umbriel_dpms_skips_switched_away_screen(self, run, environment):
         outputs = [{"name": "DP-1", "enabled": True}, {"name": "HDMI-A-1", "enabled": False},
                    {"name": "ambilight", "enabled": True}]
-        run.side_effect = [json.dumps(outputs), ""]
-        control.action("display-off")
-        self.assertEqual(run.call_args.args, ("umbriel", "msg", "dpms-off:DP-1"))
-        self.assertEqual(run.call_count, 2)
+        for state in ["off", "on"]:
+            with self.subTest(state=state):
+                run.reset_mock()
+                run.side_effect = [json.dumps(outputs), ""]
+                control.action("display-" + state)
+                self.assertEqual(run.call_args.args, ("umbriel", "msg", "dpms-" + state, "DP-1"))
+                self.assertEqual(run.call_count, 2)
 
     @patch.object(control, "session_environment", return_value={"XDG_CURRENT_DESKTOP": "umbriel"})
     @patch.object(control, "run")

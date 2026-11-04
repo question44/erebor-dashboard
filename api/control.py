@@ -83,7 +83,7 @@ def action(name):
             for output in outputs:
                 # A screen switched away by umbriel-display-mode stays disabled.
                 if output["name"] not in {"ambilight", "sunshine"} and output.get("enabled") is not False:
-                    run("umbriel", "msg", "dpms-" + state + ":" + output["name"], env=env)
+                    run("umbriel", "msg", "dpms-" + state, output["name"], env=env)
         elif desktop == "niri":
             run("niri", "msg", "action", "power-" + state + "-monitors", env=env)
         else:
