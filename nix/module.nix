@@ -2,7 +2,7 @@
 let
   cfg = config.services.erebor-dashboard;
   settingsFormat = pkgs.formats.json { };
-  actionType = lib.types.enum [ "display-on" "display-off" "ambilight-on" "ambilight-off"
+  actionType = lib.types.enum [ "display-on" "display-off" "screen-dp" "screen-hdmi" "ambilight-on" "ambilight-off"
     "sleep" "power-off" "reboot-windows" ];
 in
 {

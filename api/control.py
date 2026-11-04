@@ -24,7 +24,8 @@ import uvicorn
 
 HOSTS = set(os.environ.get("DASHBOARD_HOSTS", "localhost,127.0.0.1").split(","))
 ENABLED_ACTIONS = set(filter(None, os.environ.get("DASHBOARD_ACTIONS", "").split(",")))
-ActionName = Literal["display-on", "display-off", "ambilight-on", "ambilight-off", "sleep", "power-off", "reboot-windows"]
+ActionName = Literal["display-on", "display-off", "screen-dp", "screen-hdmi", "ambilight-on", "ambilight-off",
+                     "sleep", "power-off", "reboot-windows"]
 ACTIONS = set(get_args(ActionName))
 AMBILIGHT_LOCK = threading.Lock()
 
@@ -80,12 +81,18 @@ def action(name):
         elif desktop == "umbriel":
             outputs = json.loads(run("umbriel", "outputs", "--json", env=env))
             for output in outputs:
-                if output["name"] not in {"ambilight", "sunshine"}:
+                # A screen switched away by umbriel-display-mode stays disabled.
+                if output["name"] not in {"ambilight", "sunshine"} and output.get("enabled") is not False:
                     run("umbriel", "msg", "dpms-" + state + ":" + output["name"], env=env)
         elif desktop == "niri":
             run("niri", "msg", "action", "power-" + state + "-monitors", env=env)
         else:
             raise RuntimeError("No supported desktop session is running")
+    elif name.startswith("screen-"):
+        env = session_environment()
+        if env.get("XDG_CURRENT_DESKTOP", "").lower() != "umbriel":
+            raise RuntimeError("Screen switching needs an Umbriel session")
+        run("umbriel-display-mode", name.removeprefix("screen-"), env=env)
     elif name.startswith("ambilight-"):
         # WLED can retain realtime output despite acknowledging power off.
         # Override it until explicitly enabled, preserving PipeWire capture.
@@ -114,8 +121,14 @@ class DeviceStatus(BaseModel):
     detail: str
 
 
+class ScreenStatus(BaseModel):
+    state: Literal["dp", "hdmi", "both", "none", "unknown"]
+    detail: str
+
+
 class ControlStatus(BaseModel):
     display: DeviceStatus
+    screen: ScreenStatus
     ambilight: DeviceStatus
 
 
@@ -130,7 +143,9 @@ def display_status():
         if desktop == "umbriel":
             outputs = json.loads(run("umbriel", "outputs", "--json", env=env, timeout=2))
             physical = [o for o in outputs if o["name"] not in {"ambilight", "sunshine"}]
-            powers = [False if o.get("enabled") is False else o.get("powered") for o in physical]
+            # Only one screen is enabled at a time; the switched-away one is not "off".
+            enabled = [o for o in physical if o.get("enabled") is not False]
+            powers = [o.get("powered") for o in enabled] if enabled else [False for o in physical]
         elif desktop in {"mango", "niri"}:
             outputs = json.loads(run("wlopm", "--json", env=env, timeout=2))
             powers = [o["power-mode"] == "on" if o.get("power-mode") in {"on", "off"} else None
@@ -149,6 +164,21 @@ def display_status():
         return DeviceStatus(state="mixed", detail=f"Desktop reports {count} of {total} displays powered on.")
     except (OSError, ValueError, TypeError, KeyError, AttributeError, subprocess.SubprocessError):
         return DeviceStatus(state="unknown", detail="Display power status is unavailable.")
+
+
+SCREEN_DETAILS = {"dp": "Showing on DP-1; HDMI is disabled.", "hdmi": "Showing on HDMI; DP-1 is disabled.",
+                  "both": "DP-1 and HDMI are both enabled.", "none": "No physical screen is enabled."}
+
+
+def screen_status():
+    try:
+        env = session_environment(timeout=2)
+        if env.get("XDG_CURRENT_DESKTOP", "").lower() != "umbriel":
+            return ScreenStatus(state="unknown", detail="Screen switching needs an Umbriel session.")
+        state = run("umbriel-display-mode", "status", env=env, timeout=2).strip()
+        return ScreenStatus(state=state, detail=SCREEN_DETAILS[state])
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+        return ScreenStatus(state="unknown", detail="Screen status is unavailable.")
 
 
 def ambilight_status():
@@ -290,7 +320,7 @@ async def http_error(request: Request, exc: HTTPException):
 
 @app.get("/api/control/status", response_model=ControlStatus)
 def read_control_status():
-    return ControlStatus(display=display_status(), ambilight=ambilight_status())
+    return ControlStatus(display=display_status(), screen=screen_status(), ambilight=ambilight_status())
 
 
 @app.get("/api/control/os", response_model=HostOS)

@@ -53,10 +53,10 @@
           <div class="device-actions">
             @for (action of device.actions; track action.id) {
               <button mat-button class="device-action" [class.off]="action.off"
-                [class.current]="devices()?.[device.id].state === (action.off ? 'off' : 'on')"
+                [class.current]="isCurrent(device.id, action)"
                 [attr.data-action]="action.id" [attr.aria-label]="action.label" [attr.aria-describedby]="device.id + '-detail'"
                 [disabled]="!canExecute(action)" (click)="activate(action)">
-                Turn {{ action.off ? 'off' : 'on' }}
+                {{ action.button ?? 'Turn ' + (action.off ? 'off' : 'on') }}
               </button>
             }
           </div>

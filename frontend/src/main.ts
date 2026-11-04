@@ -5,12 +5,12 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatChipsModule } from '@angular/material/chips';
 
-interface Action { id: string; label: string; icon: string; off?: boolean; danger?: boolean; confirm?: string; }
+interface Action { id: string; label: string; icon: string; off?: boolean; danger?: boolean; confirm?: string; button?: string; }
 interface InstallPrompt extends Event { prompt(): Promise<void>; }
-type Device = 'display' | 'ambilight';
-type DeviceState = 'on' | 'off' | 'mixed' | 'unknown';
+type Device = 'display' | 'screen' | 'ambilight';
+type DeviceState = 'on' | 'off' | 'mixed' | 'dp' | 'hdmi' | 'both' | 'none' | 'unknown';
 interface DeviceStatus { state: DeviceState; detail: string; }
-interface DeviceSnapshot { display: DeviceStatus; ambilight: DeviceStatus; }
+interface DeviceSnapshot { display: DeviceStatus; screen: DeviceStatus; ambilight: DeviceStatus; }
 interface PowerStatus {
   state: 'awake' | 'asleep' | 'off' | 'unknown'; detail: string;
   operatingSystem?: { state: 'nixos' | 'windows' | 'unknown'; detail: string; };
@@ -36,6 +36,8 @@ const availableActions = (): Action[] => [
   { id: 'wake', label: 'Wake up', icon: 'power' },
   { id: 'display-on', label: 'Display on', icon: 'display' },
   { id: 'display-off', label: 'Display off', icon: 'display', off: true },
+  { id: 'screen-dp', label: 'Show on DP-1', icon: 'display', button: 'DP-1' },
+  { id: 'screen-hdmi', label: 'Show on HDMI', icon: 'display', button: 'HDMI' },
   { id: 'ambilight-on', label: 'Ambilight on', icon: 'light' },
   { id: 'ambilight-off', label: 'Ambilight off', icon: 'light', off: true },
   { id: 'sleep', label: 'Sleep', icon: 'sleep', confirm: `Put ${settings.title} to sleep? Remote services will disconnect until it wakes.` },
@@ -84,10 +86,10 @@ class Dashboard {
   readonly actions = availableActions().filter(action => settings.actions.includes(action.id)
     && (action.id !== 'wake' || settings.wakeUrl?.startsWith('https://')));
   readonly services = services;
-  readonly deviceControls = (['display', 'ambilight'] as const).map(device => ({
+  readonly deviceControls = (['display', 'screen', 'ambilight'] as const).map(device => ({
     id: device,
-    label: device === 'display' ? 'Display' : 'Ambilight',
-    icon: device === 'display' ? 'display' : 'light',
+    label: { display: 'Display', screen: 'Screen', ambilight: 'Ambilight' }[device],
+    icon: device === 'ambilight' ? 'light' : 'display',
     actions: this.actions.filter(action => action.id.startsWith(`${device}-`)),
   })).filter(device => device.actions.length);
   readonly systemActions = this.actions.filter(action => !this.deviceControls.some(device => device.actions.includes(action)));
@@ -306,7 +308,12 @@ class Dashboard {
     if (!this.online()) return 'Offline';
     const state = this.devices()?.[device].state;
     if (!state) return this.checkingDevices() ? 'Checking…' : 'Unknown';
-    return { on: 'On', off: 'Off', mixed: 'Mixed', unknown: 'Unknown' }[state];
+    return { on: 'On', off: 'Off', mixed: 'Mixed', dp: 'DP-1', hdmi: 'HDMI', both: 'Both', none: 'None', unknown: 'Unknown' }[state];
+  }
+
+  isCurrent(device: Device, action: Action) {
+    const state = this.devices()?.[device]?.state;
+    return device === 'screen' ? state === action.id.replace(/^screen-/, '') : state === (action.off ? 'off' : 'on');
   }
 
   deviceDetail(device: Device) {

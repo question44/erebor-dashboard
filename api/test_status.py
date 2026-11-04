@@ -34,6 +34,13 @@ class DisplayStatus(unittest.TestCase):
             run.return_value = value
             self.assertEqual(control.display_status().state, "unknown")
 
+    @patch.object(control, "session_environment", return_value={"XDG_CURRENT_DESKTOP": "umbriel"})
+    @patch.object(control, "run")
+    def test_switched_away_screen_is_not_counted(self, run, env):
+        run.return_value = json.dumps([{"name": "DP-1", "powered": True, "enabled": True},
+                                       {"name": "HDMI-A-1", "powered": False, "enabled": False}])
+        self.assertEqual(control.display_status().state, "on")
+
     @patch.object(control, "session_environment", return_value={"XDG_CURRENT_DESKTOP": "mango"})
     @patch.object(control, "run")
     def test_wlopm_query_and_virtual_output_exclusion(self, run, env):
@@ -96,6 +103,26 @@ class AmbilightStatus(unittest.TestCase):
 
     def test_missing_hyperhdr_component_is_unknown(self):
         self.assertEqual(self.probe(led_output=None).state, "unknown")
+
+
+class ScreenStatus(unittest.TestCase):
+    @patch.object(control, "session_environment", return_value={"XDG_CURRENT_DESKTOP": "umbriel"})
+    @patch.object(control, "run")
+    def test_reports_helper_state(self, run, env):
+        for state in ["dp", "hdmi", "both", "none"]:
+            run.return_value = state + "\n"
+            self.assertEqual(control.screen_status().state, state)
+        run.assert_called_with("umbriel-display-mode", "status", env=env.return_value, timeout=2)
+        run.return_value = "sideways\n"
+        self.assertEqual(control.screen_status().state, "unknown")
+        run.side_effect = subprocess.CalledProcessError(1, "umbriel-display-mode")
+        self.assertEqual(control.screen_status().state, "unknown")
+
+    @patch.object(control, "session_environment", return_value={"XDG_CURRENT_DESKTOP": "niri"})
+    @patch.object(control, "run")
+    def test_other_desktops_are_unknown(self, run, env):
+        self.assertEqual(control.screen_status().state, "unknown")
+        run.assert_not_called()
 
 
 class StatusEndpoint(unittest.TestCase):

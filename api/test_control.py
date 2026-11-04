@@ -190,6 +190,26 @@ class Dispatch(unittest.TestCase):
         self.assertEqual(run.call_args.args, ("wlopm", "--off", "DP-1"))
         self.assertEqual(run.call_count, 2)
 
+    @patch.object(control, "session_environment", return_value={"XDG_CURRENT_DESKTOP": "umbriel"})
+    @patch.object(control, "run")
+    def test_umbriel_dpms_skips_switched_away_screen(self, run, environment):
+        outputs = [{"name": "DP-1", "enabled": True}, {"name": "HDMI-A-1", "enabled": False},
+                   {"name": "ambilight", "enabled": True}]
+        run.side_effect = [json.dumps(outputs), ""]
+        control.action("display-off")
+        self.assertEqual(run.call_args.args, ("umbriel", "msg", "dpms-off:DP-1"))
+        self.assertEqual(run.call_count, 2)
+
+    @patch.object(control, "session_environment", return_value={"XDG_CURRENT_DESKTOP": "umbriel"})
+    @patch.object(control, "run")
+    def test_screen_actions_use_shared_helper(self, run, environment):
+        for screen in ["dp", "hdmi"]:
+            control.action("screen-" + screen)
+            run.assert_called_with("umbriel-display-mode", screen, env=environment.return_value)
+        environment.return_value = {"XDG_CURRENT_DESKTOP": "niri"}
+        with self.assertRaises(RuntimeError):
+            control.action("screen-dp")
+
 
 if __name__ == "__main__":
     unittest.main()
