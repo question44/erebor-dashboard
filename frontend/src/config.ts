@@ -20,7 +20,7 @@ export type PublicSettings = Pick<Settings, 'title' | 'description' | 'domainSuf
 export const MODULES: Record<string, { label: string; description: string }> = {
   'host-status': { label: 'Host power status', description: 'Awake/asleep indicator and detected operating system' },
   'outlet': { label: 'Power usage', description: 'Live watts and energy from the outlet' },
-  'quick-actions': { label: 'Quick actions', description: 'Display, Ambilight, Moonlight pairing, wake and power controls' },
+  'quick-actions': { label: 'Quick actions', description: 'Display, Ambilight, performance profile, Moonlight pairing, wake and power controls' },
   'services': { label: 'Services', description: 'Links to web services' },
 };
 
@@ -47,6 +47,8 @@ export const paths: Record<string, string> = {
   edit: 'M4 20h4L19 9l-4-4L4 16z M14 6l4 4',
   trash: 'M4 7h16 M10 11v6 M14 11v6 M6 7l1 13h10l1-13 M9 7V4h6v3',
   shield: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z',
+  close: 'M6 6l12 12 M18 6 6 18',
+  gauge: 'M12 14l4-4 M3.3 19a10 10 0 1 1 17.4 0',
 };
 
 export const availableActions = (title: string): Action[] => [
@@ -57,6 +59,9 @@ export const availableActions = (title: string): Action[] => [
   { id: 'screen-hdmi', label: 'Show on HDMI', icon: 'display', button: 'HDMI' },
   { id: 'ambilight-on', label: 'Ambilight on', icon: 'light' },
   { id: 'ambilight-off', label: 'Ambilight off', icon: 'light', off: true },
+  { id: 'profile-power-saver', label: 'Power saver profile', icon: 'gauge', button: 'Saver' },
+  { id: 'profile-balanced', label: 'Balanced profile', icon: 'gauge', button: 'Balanced' },
+  { id: 'profile-performance', label: 'Performance profile', icon: 'gauge', button: 'Performance' },
   { id: 'moonshine-pair', label: 'Moonlight pairing', icon: 'gamepad' },
   { id: 'sleep', label: 'Sleep', icon: 'sleep', confirm: `Put ${title} to sleep? Remote services will disconnect until it wakes.` },
   { id: 'reboot-windows', label: 'Reboot to Windows', icon: 'windows', danger: true, confirm: `Reboot ${title} into Windows? Save your work first. All NixOS services will disconnect. This selects Windows for the next boot only.` },

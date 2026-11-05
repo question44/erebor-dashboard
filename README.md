@@ -77,7 +77,11 @@ IDs to `settings.actions` to display buttons. Disabled API actions return 403.
 No actions are permitted by default, including when running the command directly.
 
 Available actions: `display-on`, `display-off`, `ambilight-on`, `ambilight-off`,
-`sleep`, `power-off`, `reboot-windows`, `moonshine-pair`. Supply compositor packages through
+`profile-performance`, `profile-balanced`, `profile-power-saver`, `sleep`, `power-off`,
+`reboot-windows`, `moonshine-pair`. Profile actions set power-profiles-daemon's
+`ActiveProfile` over D-Bus; grant the control user
+`org.freedesktop.UPower.PowerProfiles.switch-profile` in polkit, because the API
+runs outside an active session. Supply compositor packages through
 `control.extraPackages` for Niri, Umbriel, or Mango. Ambilight requires local
 HyperHDR on port 19444 and `control.wledUrl`. `reboot-windows` calls
 `dashboard-reboot-windows.service`; the host must provide its privileged helper

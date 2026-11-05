@@ -62,7 +62,7 @@
             <div class="state-heading">
               <erebor-icon [name]="device.icon" />
               <span>{{ device.label }}</span>
-              <strong [attr.data-state]="devices()?.[device.id].state ?? 'unknown'">{{ deviceLabel(device.id) }}</strong>
+              <strong [attr.data-state]="devices()?.[device.id]?.state ?? 'unknown'">{{ deviceLabel(device.id) }}</strong>
             </div>
             <p [id]="device.id + '-detail'">{{ deviceDetail(device.id) }}</p>
           </div>

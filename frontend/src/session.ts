@@ -13,6 +13,11 @@ interface SessionState { setupRequired: boolean; user: Account | null; }
 
 // The last signed-in view, so the installed app still offers Wake while the host sleeps.
 const CACHE_KEY = 'erebor-dashboard-view';
+// Accounts that signed in on this device, newest first; never shared with the server.
+const RECENT_KEY = 'erebor-dashboard-recent-accounts';
+const RECENT_LIMIT = 5;
+
+export interface RecentAccount { username: string; signedIn: number; }
 
 @Injectable({ providedIn: 'root' })
 export class Session {
@@ -20,6 +25,8 @@ export class Session {
   readonly settings = signal<Settings | null>(null);
   /** True while showing the cached view because the server could not be reached. */
   readonly cached = signal(false);
+  /** Accounts recently signed in on this browser, shown on the sign-in screen. */
+  readonly recent = signal<RecentAccount[]>(this.readRecent());
   private publicSettings!: PublicSettings;
   private retry?: number;
 
@@ -76,11 +83,13 @@ export class Session {
 
   async setup(username: string, password: string) {
     await api<SessionState>('/auth/setup', 'POST', { username, password });
+    this.remember(username);
     await this.loadDashboard();
   }
 
   async login(username: string, password: string) {
     await api<SessionState>('/auth/login', 'POST', { username, password });
+    this.remember(username);
     await this.loadDashboard();
   }
 
@@ -103,6 +112,28 @@ export class Session {
     localStorage.removeItem(CACHE_KEY);
     this.settings.set(null);
     this.cached.set(false);
+  }
+
+  forgetRecent(username: string) {
+    this.saveRecent(this.recent().filter(account => account.username !== username));
+  }
+
+  private remember(username: string) {
+    this.saveRecent([{ username, signedIn: Date.now() },
+      ...this.recent().filter(account => account.username !== username)].slice(0, RECENT_LIMIT));
+  }
+
+  private saveRecent(accounts: RecentAccount[]) {
+    this.recent.set(accounts);
+    try { localStorage.setItem(RECENT_KEY, JSON.stringify(accounts)); } catch { /* Storage may be unavailable. */ }
+  }
+
+  private readRecent(): RecentAccount[] {
+    try {
+      const value = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]');
+      return Array.isArray(value) ? value.filter(account => typeof account?.username === 'string'
+        && typeof account.signedIn === 'number').slice(0, RECENT_LIMIT) : [];
+    } catch { return []; }
   }
 
   private readCache(): Settings | null {

@@ -1,11 +1,11 @@
-import { Component, Input, inject, signal } from '@angular/core';
+import { Component, ElementRef, Input, ViewChild, inject, signal } from '@angular/core';
 import { AbstractControl, FormBuilder, ReactiveFormsModule, ValidationErrors, Validators } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatStepperModule } from '@angular/material/stepper';
 import { Icon } from './icon';
-import { Session } from './session';
+import { RecentAccount, Session } from './session';
 
 export const USERNAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,31}$/;
 export const passwordsMatch = (group: AbstractControl): ValidationErrors | null =>
@@ -103,13 +103,32 @@ export class Setup {
     <h1>{{ session.branding.title }}</h1>
     <p class="intro">Sign in to see your services and controls.</p>
     @if (message && !error()) { <p class="notice" role="status">{{ message }}</p> }
+    @if (session.recent().length) {
+      <section class="recent-accounts" aria-labelledby="recent-title">
+        <h2 id="recent-title">Recently signed in on this device</h2>
+        <ul>
+          @for (account of session.recent(); track account.username) {
+            <li [class.selected]="form.controls.username.value === account.username">
+              <button type="button" class="recent-account" (click)="choose(account)" [attr.aria-label]="'Sign in as ' + account.username">
+                <span class="recent-avatar" aria-hidden="true">{{ account.username[0].toUpperCase() }}</span>
+                <span class="recent-text"><strong>{{ account.username }}</strong><span>{{ ago(account.signedIn) }}</span></span>
+              </button>
+              <button type="button" class="recent-remove" (click)="session.forgetRecent(account.username)"
+                [attr.aria-label]="'Remove ' + account.username + ' from this device'" title="Remove from this device">
+                <erebor-icon name="close" />
+              </button>
+            </li>
+          }
+        </ul>
+      </section>
+    }
     <mat-form-field appearance="outline">
       <mat-label>Username</mat-label>
       <input matInput formControlName="username" autocomplete="username" autocapitalize="none" spellcheck="false" required>
     </mat-form-field>
     <mat-form-field appearance="outline">
       <mat-label>Password</mat-label>
-      <input matInput type="password" formControlName="password" autocomplete="current-password" required>
+      <input matInput #passwordInput type="password" formControlName="password" autocomplete="current-password" required>
     </mat-form-field>
     @if (error()) { <p class="form-error" role="alert">{{ error() }}</p> }
     <button mat-flat-button type="submit" [disabled]="form.invalid || busy()">{{ busy() ? 'Signing in…' : 'Sign in' }}</button>
@@ -122,9 +141,28 @@ export class Login {
   readonly busy = signal(false);
   readonly error = signal('');
   readonly form = inject(FormBuilder).nonNullable.group({
-    username: ['', Validators.required],
+    username: [this.session.recent()[0]?.username ?? '', Validators.required],
     password: ['', Validators.required],
   });
+  @ViewChild('passwordInput') passwordInput?: ElementRef<HTMLInputElement>;
+
+  choose(account: RecentAccount) {
+    this.form.controls.username.setValue(account.username);
+    this.form.controls.password.reset();
+    this.error.set('');
+    this.passwordInput?.nativeElement.focus();
+  }
+
+  ago(time: number) {
+    const minutes = Math.round((Date.now() - time) / 60000);
+    if (minutes < 1) return 'Signed in just now';
+    if (minutes < 60) return `Signed in ${minutes} min ago`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return `Signed in ${hours} h ago`;
+    const days = Math.round(hours / 24);
+    return days < 30 ? `Signed in ${days} day${days === 1 ? '' : 's'} ago`
+      : `Signed in on ${new Date(time).toLocaleDateString()}`;
+  }
 
   async submit() {
     if (this.form.invalid || this.busy()) return;

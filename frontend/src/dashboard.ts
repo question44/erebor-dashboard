@@ -10,10 +10,11 @@ import { Session } from './session';
 import { PasswordDialog } from './users';
 
 interface InstallPrompt extends Event { prompt(): Promise<void>; }
-type Device = 'display' | 'screen' | 'ambilight';
-type DeviceState = 'on' | 'off' | 'mixed' | 'dp' | 'hdmi' | 'both' | 'none' | 'unknown';
+type Device = 'display' | 'screen' | 'ambilight' | 'profile';
+type DeviceState = 'on' | 'off' | 'mixed' | 'dp' | 'hdmi' | 'both' | 'none'
+  | 'performance' | 'balanced' | 'power-saver' | 'unknown';
 interface DeviceStatus { state: DeviceState; detail: string; }
-interface DeviceSnapshot { display: DeviceStatus; screen: DeviceStatus; ambilight: DeviceStatus; }
+interface DeviceSnapshot { display: DeviceStatus; screen: DeviceStatus; ambilight: DeviceStatus; profile?: DeviceStatus; }
 interface PowerStatus {
   state: 'awake' | 'asleep' | 'off' | 'unknown'; detail: string;
   operatingSystem?: { state: 'nixos' | 'windows' | 'unknown'; detail: string; };
@@ -32,10 +33,10 @@ export class Dashboard {
   readonly actions = availableActions(this.settings.title).filter(action => this.settings.actions.includes(action.id)
     && (action.id !== 'wake' || this.settings.wakeUrl?.startsWith('https://')));
   readonly services = resolveServices(this.settings);
-  readonly deviceControls = (['display', 'screen', 'ambilight'] as const).map(device => ({
+  readonly deviceControls = (['display', 'screen', 'ambilight', 'profile'] as const).map(device => ({
     id: device,
-    label: { display: 'Display', screen: 'Screen', ambilight: 'Ambilight' }[device],
-    icon: device === 'ambilight' ? 'light' : 'display',
+    label: { display: 'Display', screen: 'Screen', ambilight: 'Ambilight', profile: 'Performance' }[device],
+    icon: { display: 'display', screen: 'display', ambilight: 'light', profile: 'gauge' }[device],
     actions: this.actions.filter(action => action.id.startsWith(`${device}-`)),
   })).filter(device => device.actions.length);
   readonly pairing = this.actions.find(action => action.id === 'moonshine-pair') ?? null;
@@ -315,19 +316,21 @@ export class Dashboard {
 
   deviceLabel(device: Device) {
     if (!this.online()) return 'Offline';
-    const state = this.devices()?.[device].state;
+    const state = this.devices()?.[device]?.state;
     if (!state) return this.checkingDevices() ? 'Checking…' : 'Unknown';
-    return { on: 'On', off: 'Off', mixed: 'Mixed', dp: 'DP-1', hdmi: 'HDMI', both: 'Both', none: 'None', unknown: 'Unknown' }[state];
+    return { on: 'On', off: 'Off', mixed: 'Mixed', dp: 'DP-1', hdmi: 'HDMI', both: 'Both', none: 'None',
+      performance: 'Performance', balanced: 'Balanced', 'power-saver': 'Power saver', unknown: 'Unknown' }[state];
   }
 
   isCurrent(device: Device, action: Action) {
     const state = this.devices()?.[device]?.state;
-    return device === 'screen' ? state === action.id.replace(/^screen-/, '') : state === (action.off ? 'off' : 'on');
+    return device === 'screen' || device === 'profile' ? state === action.id.slice(device.length + 1)
+      : state === (action.off ? 'off' : 'on');
   }
 
   deviceDetail(device: Device) {
     if (!this.online()) return 'Reconnect to refresh status.';
-    return this.devices()?.[device].detail ?? (this.checkingDevices() ? 'Reading current state…' : 'Status unavailable.');
+    return this.devices()?.[device]?.detail ?? (this.checkingDevices() ? 'Reading current state…' : 'Status unavailable.');
   }
 
   @HostListener('window:beforeinstallprompt', ['$event'])

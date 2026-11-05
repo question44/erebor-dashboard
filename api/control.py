@@ -30,6 +30,7 @@ import auth
 HOSTS = set(os.environ.get("DASHBOARD_HOSTS", "localhost,127.0.0.1").split(","))
 ENABLED_ACTIONS = set(filter(None, os.environ.get("DASHBOARD_ACTIONS", "").split(",")))
 ActionName = Literal["display-on", "display-off", "screen-dp", "screen-hdmi", "ambilight-on", "ambilight-off",
+                     "profile-performance", "profile-balanced", "profile-power-saver",
                      "sleep", "power-off", "reboot-windows"]
 ACTIONS = set(get_args(ActionName))
 # Needs a PIN, so it has its own endpoint instead of POST /api/control.
@@ -39,6 +40,9 @@ MOONSHINE_URL = os.environ.get("DASHBOARD_MOONSHINE_URL", "http://127.0.0.1:4798
 MOONLIGHT_DEFAULT_ID = "0123456789ABCDEF"
 PIN_WAIT = re.compile(r"Waiting for pin to be sent at \S*[?&]uniqueid=([0-9A-Fa-f]{1,16})\b")
 AMBILIGHT_LOCK = threading.Lock()
+PROFILES = ("performance", "balanced", "power-saver")
+POWER_PROFILES = ("org.freedesktop.UPower.PowerProfiles", "/org/freedesktop/UPower/PowerProfiles",
+                  "org.freedesktop.UPower.PowerProfiles")
 
 
 def load_settings():
@@ -145,6 +149,13 @@ def action(name):
             else:
                 hyperhdr_leds(False)
                 wled_state({"on": False, "live": False, "lor": 2})
+    elif name.startswith("profile-"):
+        profile = name.removeprefix("profile-")
+        if profile not in PROFILES:
+            raise ValueError("Unknown profile")
+        # power-profiles-daemon checks polkit; a rule grants this user without a session.
+        run("busctl", "--system", "--allow-interactive-authorization=no", "set-property",
+            *POWER_PROFILES, "ActiveProfile", "s", profile)
     elif name == "reboot-windows":
         run("systemctl", "--system", "--no-ask-password", "start",
             "dashboard-reboot-windows.service", timeout=65)
@@ -207,10 +218,16 @@ class ScreenStatus(BaseModel):
     detail: str
 
 
+class ProfileStatus(BaseModel):
+    state: Literal["performance", "balanced", "power-saver", "unknown"]
+    detail: str
+
+
 class ControlStatus(BaseModel):
     display: DeviceStatus
     screen: ScreenStatus
     ambilight: DeviceStatus
+    profile: ProfileStatus
 
 
 class HostOS(BaseModel):
@@ -260,6 +277,31 @@ def screen_status():
         return ScreenStatus(state=state, detail=SCREEN_DETAILS[state])
     except (OSError, ValueError, KeyError, subprocess.SubprocessError):
         return ScreenStatus(state="unknown", detail="Screen status is unavailable.")
+
+
+PROFILE_DETAILS = {"performance": "Maximum CPU performance; uses more power.",
+                   "balanced": "Default balance of performance and power use.",
+                   "power-saver": "Reduced CPU performance to save power."}
+
+
+def power_property(name):
+    result = json.loads(run("busctl", "--system", "--json=short", "get-property", *POWER_PROFILES, name, timeout=2))
+    if result.get("type") != "s" or not isinstance(result.get("data"), str):
+        raise ValueError("Unexpected power profile property")
+    return result["data"]
+
+
+def profile_status():
+    try:
+        state = power_property("ActiveProfile")
+        detail = PROFILE_DETAILS[state]
+        if state == "performance":
+            degraded = power_property("PerformanceDegraded")
+            if degraded:
+                detail = f"Performance is limited ({degraded})."
+        return ProfileStatus(state=state, detail=detail)
+    except (OSError, ValueError, KeyError, AttributeError, subprocess.SubprocessError):
+        return ProfileStatus(state="unknown", detail="Power profile status is unavailable.")
 
 
 def ambilight_status():
@@ -609,7 +651,8 @@ def pair_moonlight(request: PairingPin, user: User):
 
 @app.get("/api/control/status", response_model=ControlStatus)
 def read_control_status(user: User):
-    return ControlStatus(display=display_status(), screen=screen_status(), ambilight=ambilight_status())
+    return ControlStatus(display=display_status(), screen=screen_status(), ambilight=ambilight_status(),
+                         profile=profile_status())
 
 
 @app.get("/api/control/os", response_model=HostOS)

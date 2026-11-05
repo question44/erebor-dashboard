@@ -203,5 +203,25 @@ class Dispatch(unittest.TestCase):
             control.action("screen-dp")
 
 
+class PowerProfiles(unittest.TestCase):
+    @patch.object(control, "run")
+    def test_switch_uses_fixed_dbus_property(self, run):
+        control.action("profile-power-saver")
+        run.assert_called_once_with("busctl", "--system", "--allow-interactive-authorization=no", "set-property",
+                                    *control.POWER_PROFILES, "ActiveProfile", "s", "power-saver")
+
+    def test_status(self):
+        replies = {"ActiveProfile": "performance", "PerformanceDegraded": "high-operating-temperature"}
+        fake = lambda *args, **kwargs: json.dumps({"type": "s", "data": replies[args[-1]]})
+        with patch.object(control, "run", side_effect=fake):
+            status = control.profile_status()
+        self.assertEqual(status.state, "performance")
+        self.assertIn("high-operating-temperature", status.detail)
+        with patch.object(control, "run", return_value='{"type":"s","data":"turbo"}'):
+            self.assertEqual(control.profile_status().state, "unknown")
+        with patch.object(control, "run", side_effect=OSError):
+            self.assertEqual(control.profile_status().state, "unknown")
+
+
 if __name__ == "__main__":
     unittest.main()

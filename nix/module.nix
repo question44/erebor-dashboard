@@ -3,7 +3,7 @@ let
   cfg = config.services.erebor-dashboard;
   settingsFormat = pkgs.formats.json { };
   actionType = lib.types.enum [ "display-on" "display-off" "screen-dp" "screen-hdmi" "ambilight-on" "ambilight-off"
-    "sleep" "power-off" "reboot-windows" "moonshine-pair" ];
+    "profile-performance" "profile-balanced" "profile-power-saver" "sleep" "power-off" "reboot-windows" "moonshine-pair" ];
 in
 {
   options.services.erebor-dashboard = {

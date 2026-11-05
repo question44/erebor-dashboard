@@ -119,3 +119,17 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--primary); outli
 .pairing-status { margin: 12px 0 0; font-size: .8rem; line-height: 1.5; color: var(--secondary); }
 .pairing-status.error { color: var(--error); }
 .pairing-status.success { color: light-dark(#236b31, #a0d5a6); }
+.device-control[data-device="profile"] .device-actions { flex-wrap: wrap; }
+.recent-accounts { margin: 0 0 16px; }
+.recent-accounts h2 { font-size: .8rem; font-weight: 600; color: var(--secondary); margin: 0 0 8px; text-transform: uppercase; letter-spacing: .04em; }
+.recent-accounts ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.recent-accounts li { display: flex; align-items: center; border-radius: 14px; background: var(--page); outline: 2px solid transparent; }
+.recent-accounts li.selected { outline-color: var(--primary); }
+.recent-account { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: 14px; }
+.recent-account:focus-visible, .recent-remove:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.recent-avatar { flex-shrink: 0; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; background: var(--icon-bg); color: var(--primary); font-weight: 650; }
+.recent-text { display: flex; flex-direction: column; min-width: 0; }
+.recent-text strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-text span { font-size: .8rem; color: var(--secondary); }
+.recent-remove { flex-shrink: 0; display: grid; place-items: center; width: 40px; height: 40px; margin-right: 4px; border: 0; border-radius: 50%; background: none; color: var(--secondary); cursor: pointer; }
+.recent-remove:hover { background: var(--icon-bg); }
