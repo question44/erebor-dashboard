@@ -302,24 +302,41 @@
   @if (!installed()) {
   <footer>Install from your browser menu. On iPhone or iPad, use Share → Add to Home Screen.</footer>
   }
-  @if (embedded(); as win) {
+  @if (windows().length) {
     <div class="embed-layer">
-      <section class="embed-window" cdkDrag [cdkDragDisabled]="embedMaximized()" cdkDragBoundary=".embed-layer"
-        [class.maximized]="embedMaximized()" [class.interacting]="embedInteracting()" role="dialog" [attr.aria-label]="win.label"
-        (cdkDragStarted)="embedInteracting.set(true)" (cdkDragEnded)="embedInteracting.set(false)" (pointerdown)="embedPointerDown($event)">
-        <header class="embed-titlebar" cdkDragHandle (dblclick)="embedMaximized.set(!embedMaximized())">
-          <erebor-icon name="system" />
-          <span class="embed-title">{{ win.label }}</span>
-          <a class="embed-tool" [href]="win.url" target="_blank" rel="noopener" title="Open in new tab" aria-label="Open in new tab"
-            (click)="closeEmbed()"><erebor-icon name="external" /></a>
-          <button type="button" class="embed-tool embed-maximize" (click)="embedMaximized.set(!embedMaximized())"
-            [attr.aria-label]="embedMaximized() ? 'Restore window' : 'Maximize window'" [title]="embedMaximized() ? 'Restore' : 'Maximize'">
-            <erebor-icon [name]="embedMaximized() ? 'restore' : 'maximize'" />
+      @for (win of windows(); track win.key) {
+        <section class="embed-window" cdkDrag [cdkDragDisabled]="win.maximized" cdkDragBoundary=".embed-layer" [attr.data-key]="win.key"
+          [class.maximized]="win.maximized" [class.minimized]="win.minimized" [class.active]="topWindow() === win.key"
+          [class.interacting]="embedInteracting()" [style.z-index]="win.z" [style.--offset.px]="win.offset"
+          role="dialog" [attr.aria-label]="win.label" [attr.aria-hidden]="win.minimized ? 'true' : null"
+          (cdkDragStarted)="embedInteracting.set(true)" (cdkDragEnded)="embedInteracting.set(false)" (pointerdown)="embedPointerDown(win.key, $event)">
+          <header class="embed-titlebar" cdkDragHandle (dblclick)="toggleMaximized(win.key)">
+            <erebor-icon name="system" />
+            <span class="embed-title">{{ win.label }}</span>
+            <button type="button" class="embed-tool" [disabled]="windows().length >= 8" (click)="openWindow(win.service)"
+              [attr.aria-label]="'New ' + win.service.label + ' window'" title="New window"><erebor-icon name="plus" /></button>
+            <a class="embed-tool" [href]="win.service.url" target="_blank" rel="noopener" title="Open in new tab" aria-label="Open in new tab"
+              (click)="closeWindow(win.key)"><erebor-icon name="external" /></a>
+            <button type="button" class="embed-tool" (click)="minimizeWindow(win.key)" aria-label="Minimize window" title="Minimize">
+              <erebor-icon name="minimize" />
+            </button>
+            <button type="button" class="embed-tool embed-maximize" (click)="toggleMaximized(win.key)"
+              [attr.aria-label]="win.maximized ? 'Restore window' : 'Maximize window'" [title]="win.maximized ? 'Restore' : 'Maximize'">
+              <erebor-icon [name]="win.maximized ? 'restore' : 'maximize'" />
+            </button>
+            <button type="button" class="embed-tool" (click)="closeWindow(win.key)" aria-label="Close window" title="Close"><erebor-icon name="close" /></button>
+          </header>
+          <iframe [src]="win.src" [title]="win.label" allow="clipboard-read; clipboard-write"></iframe>
+        </section>
+      }
+      <nav class="embed-dock" aria-label="Open windows">
+        @for (win of windows(); track win.key) {
+          <button type="button" class="dock-chip" [class.active]="topWindow() === win.key" [class.minimized]="win.minimized"
+            (click)="dockClick(win.key)" [attr.aria-label]="win.label + (win.minimized ? ' (minimized)' : '')">
+            <erebor-icon name="system" /><span>{{ win.label }}</span>
           </button>
-          <button type="button" class="embed-tool" (click)="closeEmbed()" aria-label="Close window" title="Close"><erebor-icon name="close" /></button>
-        </header>
-        <iframe [src]="win.src" [title]="win.label" allow="clipboard-read; clipboard-write"></iframe>
-      </section>
+        }
+      </nav>
     </div>
   }
   <ng-template #confirmDialog>

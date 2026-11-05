@@ -37,6 +37,12 @@ const SPACER = 'spacer-';
 const SPRING = CSS.supports('transition-timing-function', 'linear(0, 1)')
   ? 'linear(0, 0.06 2%, 0.25 6%, 0.55 12%, 0.83 19%, 1 25%, 1.05 31%, 1.06 36%, 1.04 44%, 1.01 55%, 0.995 66%, 1)'
   : 'cubic-bezier(.2, .9, .3, 1.1)';
+const MAX_WINDOWS = 8;
+interface EmbeddableService { id: string; label: string; url?: string; embedOn?: string[]; }
+interface EmbedWindow {
+  key: number; number: number; label: string; service: EmbeddableService; src: SafeResourceUrl;
+  z: number; offset: number; maximized: boolean; minimized: boolean;
+}
 const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 const MAX_SPACERS = 16;
 export const isSpacer = (id: string) => id.startsWith(SPACER);
@@ -88,8 +94,10 @@ export class Dashboard {
   // Touch needs a short hold so a quick swipe still scrolls the page.
   readonly dragDelay = { touch: 180, mouse: 0 };
   /** Service shown in the floating in-page window (e.g. the browser terminal). */
-  readonly embedded = signal<{ id: string; label: string; url: string; src: SafeResourceUrl } | null>(null);
-  readonly embedMaximized = signal(false);
+  /** Floating in-page windows for embedded services (e.g. several browser terminals). */
+  readonly windows = signal<EmbedWindow[]>([]);
+  private windowSeq = 0;
+  private zSeq = 0;
   /** True while the window is moved or resized, so the iframe does not swallow pointer events. */
   readonly embedInteracting = signal(false);
   private readonly sanitizer = inject(DomSanitizer);
@@ -692,21 +700,81 @@ export class Dashboard {
     return !!service.url?.startsWith('https://') && !!service.embedOn?.includes(location.hostname);
   }
 
-  openService(service: { id: string; label: string; url?: string; embedOn?: string[] }, event: MouseEvent) {
+  openService(service: EmbeddableService, event: MouseEvent) {
     // Modified or middle clicks keep their usual new-tab/window behaviour.
     if (!this.canEmbed(service) || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
-    if (this.embedded()?.id !== service.id) {
-      this.embedded.set({ id: service.id, label: service.label, url: service.url!,
-        src: this.sanitizer.bypassSecurityTrustResourceUrl(service.url!) });
-    }
-    window.setTimeout(() => document.querySelector<HTMLIFrameElement>('.embed-window iframe')?.focus());
+    this.openWindow(service);
   }
 
-  closeEmbed() { this.embedded.set(null); this.embedMaximized.set(false); }
+  /** Each window is its own iframe, so ttyd starts a separate shell for it. */
+  openWindow(service: EmbeddableService) {
+    const open = this.windows();
+    if (open.length >= MAX_WINDOWS) {
+      this.focusWindow(open.reduce((a, b) => (a.z > b.z ? a : b)).key);
+      return;
+    }
+    const used = new Set(open.filter(w => w.service.id === service.id).map(w => w.number));
+    let number = 1;
+    while (used.has(number)) number++;
+    const key = ++this.windowSeq;
+    // Cascade new windows so they don't sit exactly on top of each other.
+    const offset = 32 * (open.length % 6);
+    this.windows.update(list => [...list, { key, number, service, z: ++this.zSeq, maximized: false, minimized: false, offset,
+      label: number === 1 ? service.label : `${service.label} ${number}`,
+      src: this.sanitizer.bypassSecurityTrustResourceUrl(service.url!) }]);
+    window.setTimeout(() => this.focusFrame(key));
+  }
+
+  private updateWindow(key: number, change: Partial<EmbedWindow>) {
+    this.windows.update(list => list.map(w => (w.key === key ? { ...w, ...change } : w)));
+  }
+
+  /** The frontmost visible window; it gets the active styling and dock highlight. */
+  readonly topWindow = computed(() => this.windows().filter(w => !w.minimized).reduce<EmbedWindow | null>(
+    (top, w) => (!top || w.z > top.z ? w : top), null)?.key ?? null);
+
+  focusWindow(key: number, focusFrame = true) {
+    const win = this.windows().find(w => w.key === key);
+    if (!win) return;
+    if (win.z !== this.zSeq || win.minimized) this.updateWindow(key, { z: ++this.zSeq, minimized: false });
+    if (focusFrame) window.setTimeout(() => this.focusFrame(key));
+  }
+
+  private focusFrame(key: number) {
+    document.querySelector<HTMLIFrameElement>(`.embed-window[data-key="${key}"] iframe`)?.focus();
+  }
+
+  closeWindow(key: number) { this.windows.update(list => list.filter(w => w.key !== key)); }
+
+  toggleMaximized(key: number) {
+    const win = this.windows().find(w => w.key === key);
+    if (win) this.updateWindow(key, { maximized: !win.maximized });
+  }
+
+  minimizeWindow(key: number) { this.updateWindow(key, { minimized: true }); }
+
+  /** Dock chip: restore a minimised window, minimise the front one, otherwise bring it forward. */
+  dockClick(key: number) {
+    const win = this.windows().find(w => w.key === key);
+    if (!win) return;
+    if (!win.minimized && this.topWindow() === key) this.minimizeWindow(key);
+    else this.focusWindow(key);
+  }
+
+  /** Clicks inside an iframe never reach this page; the page losing focus to one of them means it was clicked. */
+  @HostListener('window:blur')
+  frameFocused() {
+    window.setTimeout(() => {
+      const frame = document.activeElement;
+      const key = frame instanceof HTMLIFrameElement ? Number(frame.closest<HTMLElement>('.embed-window')?.dataset['key']) : NaN;
+      if (key) this.focusWindow(key, false);
+    });
+  }
 
   /** Pointer down on the window frame (its resize corner) rather than the iframe content. */
-  embedPointerDown(event: PointerEvent) {
+  embedPointerDown(key: number, event: PointerEvent) {
+    this.focusWindow(key, false);
     if (event.target !== event.currentTarget) return;
     this.embedInteracting.set(true);
     window.addEventListener('pointerup', () => this.embedInteracting.set(false), { once: true });

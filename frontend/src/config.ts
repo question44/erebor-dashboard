@@ -68,6 +68,7 @@ export const paths: Record<string, string> = {
   chevron: 'M6 9l6 6 6-6',
   'fold-grip': 'M8 5l4-3 4 3 M8 19l4 3 4-3 M4 12h16',
   maximize: 'M4 4h16v16H4z',
+  minimize: 'M5 19h14',
   restore: 'M8 4h12v12 M4 8h12v12H4z',
   external: 'M14 4h6v6 M20 4l-9 9 M18 14v6H4V6h6',
   gauge: 'M12 14l4-4 M3.3 19a10 10 0 1 1 17.4 0',

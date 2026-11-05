@@ -81,7 +81,10 @@ unfolding and reordering animate with a spring (disabled for reduced motion).
 
 A service with `embedOn: ["dashboard.example.org"]` and an HTTPS `url` opens in
 a draggable, resizable in-page window (full screen on phones) when the dashboard
-is opened on one of those hostnames; elsewhere it stays a normal link. The
+is opened on one of those hostnames; elsewhere it stays a normal link. Each click
+(or **+** in a window's title bar) opens another window, up to 8, each with its
+own session; windows cascade, come forward when clicked, and can be minimised to
+a dock at the bottom of the page. The
 service must allow framing, e.g. `frame-ancestors https://dashboard.example.org`. A **Show hidden**
 toggle reveals hidden items again. The arrangement is stored per account in the
 API's SQLite database (`PUT /api/control/layout`); without accounts it is kept
