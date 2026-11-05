@@ -78,6 +78,29 @@
           </div>
         </div>
       }
+      @if (pairing) {
+        <form class="device-control pairing" role="group" aria-label="Moonlight pairing" (submit)="$event.preventDefault(); pairMoonlight()">
+          <div class="state-summary" aria-live="polite">
+            <div class="state-heading">
+              <erebor-icon name="gamepad" />
+              <span>Moonlight pairing</span>
+              <strong [attr.data-state]="pairingWaiting() ? 'mixed' : 'unknown'">{{ pairingLabel() }}</strong>
+            </div>
+            <p id="pairing-detail">{{ pairingWaiting()
+              ? 'A Moonlight client is waiting. Enter the 4-digit PIN it shows.'
+              : 'Add this PC in Moonlight, then enter the PIN it shows here.' }}</p>
+          </div>
+          <div class="device-actions">
+            <input class="pin-input" inputmode="numeric" autocomplete="one-time-code" placeholder="PIN"
+              aria-label="Moonlight PIN" aria-describedby="pairing-detail" [value]="pin()" [disabled]="!online() || !hostAvailable()"
+              (input)="setPin($any($event.target))">
+            <button mat-button class="device-action" type="submit" data-action="moonshine-pair" [disabled]="!canPair()">Pair</button>
+          </div>
+          @if (pairingStatus(); as message) {
+            <p class="pairing-status" [class.error]="message.severity === 'error'" [class.success]="message.severity === 'success'" role="status">{{ message.text }}</p>
+          }
+        </form>
+      }
     </div>
     <div class="actions">
       @for (action of systemActions; track action.id) {

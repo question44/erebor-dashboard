@@ -4,19 +4,21 @@ import ipaddress
 import json
 import os
 import platform
+import re
 import socket
 import subprocess
 import threading
 from pathlib import Path
 from typing import Annotated, Literal, get_args
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
+from urllib.error import HTTPError
 from urllib.request import Request as URLRequest, urlopen
 
 from fastapi import Cookie, Depends, FastAPI, Header, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, StringConstraints
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.exceptions import HTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -30,6 +32,12 @@ ENABLED_ACTIONS = set(filter(None, os.environ.get("DASHBOARD_ACTIONS", "").split
 ActionName = Literal["display-on", "display-off", "screen-dp", "screen-hdmi", "ambilight-on", "ambilight-off",
                      "sleep", "power-off", "reboot-windows"]
 ACTIONS = set(get_args(ActionName))
+# Needs a PIN, so it has its own endpoint instead of POST /api/control.
+MOONSHINE_PAIR = "moonshine-pair"
+MOONSHINE_URL = os.environ.get("DASHBOARD_MOONSHINE_URL", "http://127.0.0.1:47989").rstrip("/")
+# Moonlight clients send this fixed ID; Moonshine logs any other ID it waits for.
+MOONLIGHT_DEFAULT_ID = "0123456789ABCDEF"
+PIN_WAIT = re.compile(r"Waiting for pin to be sent at \S*[?&]uniqueid=([0-9A-Fa-f]{1,16})\b")
 AMBILIGHT_LOCK = threading.Lock()
 
 
@@ -148,6 +156,45 @@ def action(name):
             "org.freedesktop.login1.Manager", method, "b", "false")
     else:
         raise ValueError("Unknown action")
+
+
+def moonshine_pending():
+    """Client IDs Moonshine is waiting on, from its recent log (newest last)."""
+    output = run("journalctl", "--unit", "moonshine.service", "--since", "-3min",
+                 "--output", "cat", "--no-pager", "--quiet", timeout=5)
+    pending = []
+    for line in output.splitlines():
+        if match := PIN_WAIT.search(line):
+            unique_id = match.group(1).upper()
+            pending = [i for i in pending if i != unique_id] + [unique_id]
+        elif "PIN registered successfully" in line:
+            pending = []
+    return pending
+
+
+def moonshine_submit(unique_id, pin):
+    request = URLRequest(MOONSHINE_URL + "/submit-pin", data=urlencode({"uniqueid": unique_id, "pin": pin}).encode(),
+                         headers={"Content-Type": "application/x-www-form-urlencoded"})
+    try:
+        with urlopen(request, timeout=5) as response:
+            return response.status == 200
+    except HTTPError as error:
+        if error.code == 400:
+            return False
+        raise
+
+
+def moonshine_pair(pin):
+    """Give the PIN to the newest waiting client only, so other requests keep their state."""
+    try:
+        candidates = moonshine_pending()
+    except (OSError, subprocess.SubprocessError):
+        candidates = []
+    for unique_id in dict.fromkeys([*reversed(candidates), MOONLIGHT_DEFAULT_ID]):
+        # Moonshine returns 400 for IDs that are not waiting, and 200 for the first that is.
+        if moonshine_submit(unique_id, pin):
+            return True
+    return False
 
 
 class DeviceStatus(BaseModel):
@@ -521,6 +568,43 @@ def delete_user(username: str, admin: Admin):
     except auth.AuthError as exc:
         return auth_failure(exc)
     return ControlResult(message="User deleted")
+
+
+class PairingPin(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    pin: Annotated[str, StringConstraints(pattern=r"^[0-9]{4}$")]
+
+
+class PairingStatus(BaseModel):
+    waiting: bool | None
+
+
+def pairing_allowed(user):
+    if MOONSHINE_PAIR not in ENABLED_ACTIONS or MOONSHINE_PAIR not in catalog().view(user)["actions"]:
+        raise HTTPException(403, "Your account cannot pair Moonlight clients")
+
+
+@app.get("/api/control/moonshine/pairing", response_model=PairingStatus)
+def read_pairing(user: User):
+    pairing_allowed(user)
+    try:
+        return PairingStatus(waiting=bool(moonshine_pending()))
+    except (OSError, subprocess.SubprocessError):
+        return PairingStatus(waiting=None)
+
+
+@app.post("/api/control/moonshine/pair", response_model=ControlResult,
+          responses={code: {"model": ControlError} for code in [400, 401, 403, 409, 503]})
+def pair_moonlight(request: PairingPin, user: User):
+    pairing_allowed(user)
+    try:
+        accepted = moonshine_pair(request.pin)
+    except (OSError, ValueError) as exc:
+        print(f"Moonshine pairing failed: {exc}", flush=True)
+        return JSONResponse({"error": "Moonshine is not responding. Check moonshine.service."}, 503)
+    if not accepted:
+        return JSONResponse({"error": "No Moonlight client is waiting for this PIN. Start pairing in Moonlight, then enter the PIN it shows."}, 409)
+    return ControlResult(message="PIN accepted. Finish pairing in Moonlight.")
 
 
 @app.get("/api/control/status", response_model=ControlStatus)

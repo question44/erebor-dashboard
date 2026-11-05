@@ -112,3 +112,10 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--primary); outli
 .permission-group legend { padding: 0 6px; font-weight: 600; }
 .permission-group:disabled { opacity: .55; }
 .group-tools { display: flex; gap: 4px; justify-content: flex-end; }
+
+.pin-input { flex: 1; min-width: 0; min-height: 44px; padding: 0 14px; border: 1px solid color-mix(in srgb, var(--secondary) 40%, transparent); border-radius: 12px; background: var(--page); color: var(--ink); font: inherit; font-size: 1.25rem; letter-spacing: .4em; text-align: center; font-variant-numeric: tabular-nums; }
+.pin-input:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
+.pin-input:disabled { opacity: .4; }
+.pairing-status { margin: 12px 0 0; font-size: .8rem; line-height: 1.5; color: var(--secondary); }
+.pairing-status.error { color: var(--error); }
+.pairing-status.success { color: light-dark(#236b31, #a0d5a6); }

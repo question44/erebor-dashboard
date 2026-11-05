@@ -4,7 +4,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatMenuModule } from '@angular/material/menu';
-import { Action, Settings, availableActions, resolveServices } from './config';
+import { Action, ApiError, Settings, api, availableActions, resolveServices } from './config';
 import { Icon } from './icon';
 import { Session } from './session';
 import { PasswordDialog } from './users';
@@ -38,7 +38,14 @@ export class Dashboard {
     icon: device === 'ambilight' ? 'light' : 'display',
     actions: this.actions.filter(action => action.id.startsWith(`${device}-`)),
   })).filter(device => device.actions.length);
-  readonly systemActions = this.actions.filter(action => !this.deviceControls.some(device => device.actions.includes(action)));
+  readonly pairing = this.actions.find(action => action.id === 'moonshine-pair') ?? null;
+  readonly systemActions = this.actions.filter(action => action !== this.pairing
+    && !this.deviceControls.some(device => device.actions.includes(action)));
+  /** Whether Moonshine has a Moonlight client waiting for a PIN; null when unknown. */
+  readonly pairingWaiting = signal<boolean | null>(null);
+  readonly pin = signal('');
+  readonly pairingStatus = signal<Status | null>(null);
+  private pairingRequest: AbortController | null = null;
   readonly canWakeHost = this.actions.some(action => action.id === 'wake');
   // The power LED check also gates host actions, even for accounts that cannot wake the host.
   readonly hasWake = (this.settings.wakeUrl?.startsWith('https://') ?? false) && (!!this.settings.auth || this.canWakeHost);
@@ -71,7 +78,8 @@ export class Dashboard {
       void this.refreshDevices();
       void this.refreshPower();
     }, 10000);
-    const outletPoll = window.setInterval(() => void this.refreshOutlet(), 5000);
+    void this.refreshPairing();
+    const outletPoll = window.setInterval(() => { void this.refreshOutlet(); void this.refreshPairing(); }, 5000);
     inject(DestroyRef).onDestroy(() => {
       window.clearInterval(poll);
       window.clearInterval(outletPoll);
@@ -128,6 +136,61 @@ export class Dashboard {
         this.outletRequest = null;
         this.checkingOutlet.set(false);
       }
+    }
+  }
+
+  async refreshPairing() {
+    if (!this.pairing || this.pairingRequest || !this.online() || document.hidden || !this.hostAvailable()) {
+      if (this.pairing && (!this.online() || !this.hostAvailable())) this.pairingWaiting.set(null);
+      return;
+    }
+    const controller = new AbortController();
+    this.pairingRequest = controller;
+    try {
+      const response = await fetch('/api/control/moonshine/pairing', {
+        cache: 'no-store', signal: AbortSignal.any([controller.signal, AbortSignal.timeout(8000)]),
+      });
+      if (response.status === 401) { this.session.expired(); return; }
+      if (!response.ok) throw new Error('Pairing status unavailable');
+      const result: { waiting: boolean | null } = await response.json();
+      this.pairingWaiting.set(result.waiting);
+    } catch {
+      this.pairingWaiting.set(null);
+    } finally {
+      if (this.pairingRequest === controller) this.pairingRequest = null;
+    }
+  }
+
+  pairingLabel() {
+    if (!this.online() || !this.hostAvailable()) return 'Unavailable';
+    const waiting = this.pairingWaiting();
+    return waiting ? 'Waiting for PIN' : waiting === false ? 'Idle' : 'Unknown';
+  }
+
+  setPin(input: HTMLInputElement) {
+    // Keep only digits; write back so rejected characters never stay visible.
+    input.value = input.value.replace(/\D/g, '').slice(0, 4);
+    this.pin.set(input.value);
+    this.pairingStatus.set(null);
+  }
+
+  canPair() { return !!this.pairing && this.pin().length === 4 && !this.busy() && this.online() && this.hostAvailable(); }
+
+  async pairMoonlight() {
+    if (!this.canPair()) return;
+    this.busy.set(true);
+    this.pairingStatus.set({ severity: 'info', text: 'Sending PIN to Moonshine…' });
+    try {
+      const result = await api<{ message: string }>('/moonshine/pair', 'POST', { pin: this.pin() });
+      this.pin.set('');
+      this.pairingStatus.set({ severity: 'success', text: result.message });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) { this.session.expired(); return; }
+      this.pairingStatus.set({ severity: 'error', text: error instanceof TypeError
+        ? `Could not reach ${this.settings.title}.` : error instanceof Error ? error.message : 'Pairing failed' });
+    } finally {
+      this.busy.set(false);
+      void this.refreshPairing();
     }
   }
 

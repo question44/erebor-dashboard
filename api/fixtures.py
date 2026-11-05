@@ -13,7 +13,7 @@ HEADERS = {"Host": "erebor.jzon.pl", "Origin": "https://erebor.jzon.pl",
            "Content-Type": "application/json", "X-Erebor-Control": "1"}
 SETTINGS = {"title": "erebor", "description": "Test", "domainSuffix": ".jzon.pl",
             "wakeUrl": "https://kvm.example/wake", "outletUrl": "https://kvm.example/outlet",
-            "actions": ["wake", *sorted(control.ACTIONS)],
+            "actions": ["wake", *sorted(control.ACTIONS), "moonshine-pair"],
             "services": [{"id": "media", "label": "Media", "description": "", "icon": "media", "url": "https://m"},
                          {"id": "code", "label": "Code", "description": "", "icon": "code", "url": "https://c"}]}
 
@@ -25,7 +25,7 @@ def isolated_store(case):
     for target, name, value in [(control, "_STORE", auth.Store(Path(directory.name) / "users.sqlite3")),
                                 (control, "SETTINGS", SETTINGS),
                                 (control, "HOSTS", {"localhost", "erebor.jzon.pl", "moria.jzon.pl"}),
-                                (control, "ENABLED_ACTIONS", control.ACTIONS)]:
+                                (control, "ENABLED_ACTIONS", control.ACTIONS | {control.MOONSHINE_PAIR})]:
         patcher = patch.object(target, name, value)
         patcher.start()
         case.addCleanup(patcher.stop)

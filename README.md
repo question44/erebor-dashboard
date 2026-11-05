@@ -77,7 +77,7 @@ IDs to `settings.actions` to display buttons. Disabled API actions return 403.
 No actions are permitted by default, including when running the command directly.
 
 Available actions: `display-on`, `display-off`, `ambilight-on`, `ambilight-off`,
-`sleep`, `power-off`, `reboot-windows`. Supply compositor packages through
+`sleep`, `power-off`, `reboot-windows`, `moonshine-pair`. Supply compositor packages through
 `control.extraPackages` for Niri, Umbriel, or Mango. Ambilight requires local
 HyperHDR on port 19444 and `control.wledUrl`. `reboot-windows` calls
 `dashboard-reboot-windows.service`; the host must provide its privileged helper
@@ -101,6 +101,14 @@ handle {
   file_server
 }
 ```
+
+`moonshine-pair` shows a Moonlight pairing card: start pairing in Moonlight, then
+type its 4-digit PIN in the hub. The API reads waiting client IDs from
+`moonshine.service`'s journal (last 3 minutes, so the control user needs journal
+access, e.g. `wheel`), sends the PIN only to the newest one (falling back to
+Moonlight's fixed ID `0123456789ABCDEF`) at `control.moonshineUrl`'s
+`/submit-pin`, and reports when nothing is waiting. Moonlight itself confirms
+whether the PIN was correct.
 
 Keep the network restriction: it also protects the first-run setup page.
 The API requires matching Host/Origin, JSON, and `X-Erebor-Control: 1` for

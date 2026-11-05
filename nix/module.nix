@@ -3,7 +3,7 @@ let
   cfg = config.services.erebor-dashboard;
   settingsFormat = pkgs.formats.json { };
   actionType = lib.types.enum [ "display-on" "display-off" "screen-dp" "screen-hdmi" "ambilight-on" "ambilight-off"
-    "sleep" "power-off" "reboot-windows" ];
+    "sleep" "power-off" "reboot-windows" "moonshine-pair" ];
 in
 {
   options.services.erebor-dashboard = {
@@ -47,6 +47,11 @@ in
         default = null;
         description = "WLED HTTP URL; HyperHDR is expected on loopback port 19444.";
       };
+      moonshineUrl = lib.mkOption {
+        type = lib.types.str;
+        default = "http://127.0.0.1:47989";
+        description = "Moonshine HTTP endpoint for `moonshine-pair`; pending client IDs come from moonshine.service's journal.";
+      };
       extraPackages = lib.mkOption {
         type = lib.types.listOf lib.types.package;
         default = [ ];
@@ -66,6 +71,7 @@ in
       environment = {
         DASHBOARD_HOSTS = lib.concatStringsSep "," cfg.control.allowedHosts;
         DASHBOARD_ACTIONS = lib.concatStringsSep "," cfg.control.enabledActions;
+        DASHBOARD_MOONSHINE_URL = cfg.control.moonshineUrl;
         DASHBOARD_SETTINGS = settingsFormat.generate "erebor-dashboard-settings.json" cfg.settings;
       } // lib.optionalAttrs (cfg.control.wledUrl != null) {
         DASHBOARD_WLED_URL = cfg.control.wledUrl;

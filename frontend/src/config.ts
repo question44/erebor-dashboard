@@ -20,7 +20,7 @@ export type PublicSettings = Pick<Settings, 'title' | 'description' | 'domainSuf
 export const MODULES: Record<string, { label: string; description: string }> = {
   'host-status': { label: 'Host power status', description: 'Awake/asleep indicator and detected operating system' },
   'outlet': { label: 'Power usage', description: 'Live watts and energy from the outlet' },
-  'quick-actions': { label: 'Quick actions', description: 'Display, Ambilight, wake and power controls' },
+  'quick-actions': { label: 'Quick actions', description: 'Display, Ambilight, Moonlight pairing, wake and power controls' },
   'services': { label: 'Services', description: 'Links to web services' },
 };
 
@@ -37,6 +37,7 @@ export const paths: Record<string, string> = {
   system: 'M4 4h16v12H4z M8 20h8 M12 16v4 M8 8l3 2-3 2 M13 12h3',
   windows: 'M3 5l8-1v8H3z M13 3.7l8-1v9.3h-8z M3 14h8v8l-8-1z M13 14h8v9.3l-8-1z',
   arrow: 'M7 17 17 7 M7 7h10v10',
+  gamepad: 'M6 9h4 M8 7v4 M15 10h.01 M18 8h.01 M7 5h10a5 5 0 0 1 4.9 6l-1 5a3 3 0 0 1-5.2 1.4L14 16h-4l-1.7 1.4A3 3 0 0 1 3.1 16l-1-5A5 5 0 0 1 7 5Z',
   user: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z M4 21a8 8 0 0 1 16 0',
   users: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z M2 21a7 7 0 0 1 14 0 M16 3.5a4 4 0 0 1 0 7.5 M18 14a7 7 0 0 1 4 7',
   key: 'M15 7a3 3 0 1 1 0 .01 M13 9.5 3 19.5V22h3v-2h2v-2h2l3.5-3.5',
@@ -56,6 +57,7 @@ export const availableActions = (title: string): Action[] => [
   { id: 'screen-hdmi', label: 'Show on HDMI', icon: 'display', button: 'HDMI' },
   { id: 'ambilight-on', label: 'Ambilight on', icon: 'light' },
   { id: 'ambilight-off', label: 'Ambilight off', icon: 'light', off: true },
+  { id: 'moonshine-pair', label: 'Moonlight pairing', icon: 'gamepad' },
   { id: 'sleep', label: 'Sleep', icon: 'sleep', confirm: `Put ${title} to sleep? Remote services will disconnect until it wakes.` },
   { id: 'reboot-windows', label: 'Reboot to Windows', icon: 'windows', danger: true, confirm: `Reboot ${title} into Windows? Save your work first. All NixOS services will disconnect. This selects Windows for the next boot only.` },
   { id: 'power-off', label: 'Power off', icon: 'power', danger: true, confirm: `Power off ${title}? Save your work first. Remote services will stop.` },
