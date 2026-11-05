@@ -238,7 +238,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--primary); outli
 .embed-tool erebor-icon { width: 18px; height: 18px; }
 // Terminal area: ttyd's #2b2b2b at --term-opacity over the blurred page. color-scheme must match the
 // framed page's (normal), or the browser paints an opaque backdrop behind the iframe.
-.embed-layer { --term-bg: rgb(43 43 43 / var(--term-opacity, .95)); }
+.embed-layer { --term-bg: rgb(43 43 43 / var(--term-opacity, .8)); }
 .embed-window iframe { flex: 1; width: 100%; border: 0; background: var(--term-bg); color-scheme: normal; }
 .embed-window.interacting iframe { pointer-events: none; }
 @media (max-width: 599px) {
