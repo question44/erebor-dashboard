@@ -133,3 +133,48 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--primary); outli
 .recent-text span { font-size: .8rem; color: var(--secondary); }
 .recent-remove { flex-shrink: 0; display: grid; place-items: center; width: 40px; height: 40px; margin-right: 4px; border: 0; border-radius: 50%; background: none; color: var(--secondary); cursor: pointer; }
 .recent-remove:hover { background: var(--icon-bg); }
+
+// Per-account layout: hide, show hidden and drag to reorder.
+.show-hidden { font-size: .875rem; }
+.item-tools { display: inline-flex; align-items: center; gap: 2px; margin-right: -6px; }
+.item-tool { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 10px; background: none; color: var(--secondary); cursor: pointer; opacity: .55; transition: opacity .15s, background .15s; }
+.item-tool erebor-icon { width: 18px; height: 18px; color: inherit; }
+.item-tool:hover, .item-tool:focus-visible, .item-tool.active { opacity: 1; background: var(--icon-bg); }
+.item-tool:disabled { display: none; }
+.drag-handle { cursor: grab; touch-action: none; }
+.state-heading .item-tools erebor-icon { color: inherit; }
+.service-item { position: relative; min-width: 0; }
+.service-item .service.mat-mdc-button { width: 100%; padding-right: 56px; }
+.service-item .item-tools { position: absolute; top: 50%; right: 14px; transform: translateY(-50%); flex-direction: column; margin: 0; }
+.is-hidden { opacity: .5; outline: 2px dashed color-mix(in srgb, var(--secondary) 45%, transparent); outline-offset: -2px; }
+.service-item.is-hidden .service.mat-mdc-button { border-radius: 20px; }
+.service-item.is-hidden { border-radius: 20px; }
+.device-control.is-hidden { opacity: .5; }
+.cdk-drag-preview { box-shadow: 0 12px 32px rgb(0 0 0 / .25); border-radius: 20px; opacity: .95; }
+.cdk-drag-placeholder { opacity: .25; }
+.cdk-drag-animating, .cdk-drop-list-dragging .cdk-drag:not(.cdk-drag-placeholder) { transition: transform 200ms cubic-bezier(0, 0, .2, 1); }
+.cdk-drag-preview.device-control, .cdk-drag-preview.service-item { background: var(--paper); }
+@media (hover: none) { .item-tool { opacity: .8; } }
+
+// Edit mode: pencil toggles it; items wiggle and can be dragged or hidden.
+.edit-button.mat-mdc-icon-button { border-radius: 12px; color: var(--ink); }
+.edit-button.active { background: var(--primary); color: var(--page); }
+.edit-button erebor-icon { width: 20px; height: 20px; }
+.edit-hint { margin-top: 16px; }
+.editing .device-actions, .editing .service.mat-mdc-button { pointer-events: none; }
+.editing .device-control, .editing .service-item { cursor: grab; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+@keyframes wiggle { from { rotate: -.6deg; } to { rotate: .6deg; } }
+@media (prefers-reduced-motion: no-preference) {
+  // `rotate` composes with CDK's drag transforms instead of replacing them.
+  .editing .device-control:not(.cdk-drag-placeholder),
+  .editing .service-item:not(.cdk-drag-placeholder) { animation: wiggle .26s ease-in-out infinite alternate; }
+  .editing .device-control:nth-child(2n), .editing .service-item:nth-child(2n) { animation-duration: .3s; animation-delay: -.12s; }
+  .editing .device-control:nth-child(3n), .editing .service-item:nth-child(3n) { animation-duration: .23s; animation-delay: -.07s; }
+}
+.cdk-drag-preview { animation: none !important; rotate: 1.5deg; cursor: grabbing; }
+@media (max-width: 599px) {
+  // Keep the pencil in the top-right corner when the header wraps on phones.
+  main:has(> header .edit-button) { position: relative; }
+  main:has(> header .edit-button) .host-heading { padding-right: 48px; }
+  .edit-button.mat-mdc-icon-button { position: absolute; top: 20px; right: 16px; }
+}

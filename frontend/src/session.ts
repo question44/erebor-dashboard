@@ -1,5 +1,5 @@
 import { Injectable, signal } from '@angular/core';
-import { Account, ApiError, PublicSettings, Settings, api } from './config';
+import { Account, ApiError, Layout, PublicSettings, Settings, api } from './config';
 
 export type View =
   | { kind: 'loading' }
@@ -112,6 +112,12 @@ export class Session {
     localStorage.removeItem(CACHE_KEY);
     this.settings.set(null);
     this.cached.set(false);
+  }
+
+  /** Keep the offline copy of the dashboard in step with a layout change. */
+  cacheLayout(layout: Layout) {
+    const cached = this.readCache();
+    if (cached) try { localStorage.setItem(CACHE_KEY, JSON.stringify({ ...cached, layout })); } catch { /* Best effort. */ }
   }
 
   forgetRecent(username: string) {

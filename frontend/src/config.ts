@@ -4,6 +4,11 @@ export interface Service {
   url?: string; subdomain?: string; port?: number; scheme?: string;
 }
 export interface Account { username: string; admin: boolean; }
+/** Per-account arrangement of quick-action cards and services; IDs not listed keep the default order. */
+export interface Layout {
+  cards: string[]; services: string[]; hiddenCards: string[]; hiddenServices: string[]; showHidden: boolean;
+}
+export const emptyLayout = (): Layout => ({ cards: [], services: [], hiddenCards: [], hiddenServices: [], showHidden: false });
 export interface Settings {
   title: string; description: string; domainSuffix: string;
   actions: string[]; services: Service[];
@@ -14,6 +19,7 @@ export interface Settings {
   /** Whether the power/OS indicator is shown; absent in single-user deployments. */
   hostStatus?: boolean;
   user?: Account;
+  layout?: Layout;
 }
 export type PublicSettings = Pick<Settings, 'title' | 'description' | 'domainSuffix' | 'auth'> & Partial<Settings>;
 
@@ -48,6 +54,11 @@ export const paths: Record<string, string> = {
   trash: 'M4 7h16 M10 11v6 M14 11v6 M6 7l1 13h10l1-13 M9 7V4h6v3',
   shield: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z',
   close: 'M6 6l12 12 M18 6 6 18',
+  grip: 'M5 9h14 M5 15h14',
+  eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
+  'eye-off': 'M3 3l18 18 M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4.1 M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a9.8 9.8 0 0 0 5.4-1.6 M9.9 9.9a3 3 0 0 0 4.2 4.2',
+  reset: 'M3 12a9 9 0 1 0 3-6.7L3 8 M3 3v5h5',
+  check: 'M5 12.5l4.5 4.5L19 7',
   gauge: 'M12 14l4-4 M3.3 19a10 10 0 1 1 17.4 0',
 };
 

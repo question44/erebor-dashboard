@@ -1,10 +1,12 @@
-import { Component, DestroyRef, HostListener, TemplateRef, ViewChild, inject, signal } from '@angular/core';
+import { Component, DestroyRef, HostListener, TemplateRef, ViewChild, computed, inject, signal } from '@angular/core';
+import { CdkDrag, CdkDragDrop, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
+import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { A11yModule } from '@angular/cdk/a11y';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatMenuModule } from '@angular/material/menu';
-import { Action, ApiError, Settings, api, availableActions, resolveServices } from './config';
+import { Action, ApiError, Layout, Settings, api, availableActions, emptyLayout, resolveServices } from './config';
 import { Icon } from './icon';
 import { Session } from './session';
 import { PasswordDialog } from './users';
@@ -21,10 +23,22 @@ interface PowerStatus {
 }
 interface Status { severity: 'info' | 'success' | 'error'; text: string; }
 interface OutletStatus { on: boolean; watts: number; todayKwh: number; monthKwh: number; }
+type Arrangeable = 'cards' | 'services';
+const HIDDEN = { cards: 'hiddenCards', services: 'hiddenServices' } as const;
+// Layout for dashboards without accounts, where there is no server-side profile.
+const LOCAL_LAYOUT_KEY = 'erebor-dashboard-layout';
+
+/** Saved IDs first (dropping unknown ones), then anything new in its default position. */
+const arrange = (ids: string[], saved: string[]) => [...new Set([...saved.filter(id => ids.includes(id)), ...ids])];
+
+function readLocalLayout(): Layout {
+  try { return { ...emptyLayout(), ...JSON.parse(localStorage.getItem(LOCAL_LAYOUT_KEY) ?? '{}') }; } catch { return emptyLayout(); }
+}
 
 @Component({
   selector: 'erebor-dashboard',
-  imports: [Icon, A11yModule, MatButtonModule, MatDialogModule, MatChipsModule, MatMenuModule],
+  imports: [Icon, A11yModule, MatButtonModule, MatDialogModule, MatChipsModule, MatMenuModule, MatSlideToggleModule,
+    CdkDropList, CdkDrag],
   templateUrl: './dashboard.html',
 })
 export class Dashboard {
@@ -42,6 +56,23 @@ export class Dashboard {
   readonly pairing = this.actions.find(action => action.id === 'moonshine-pair') ?? null;
   readonly systemActions = this.actions.filter(action => action !== this.pairing
     && !this.deviceControls.some(device => device.actions.includes(action)));
+  readonly deviceById = Object.fromEntries(this.deviceControls.map(device => [device.id, device]));
+  readonly cardIds = [...this.deviceControls.map(device => device.id), ...(this.pairing ? ['moonshine-pair'] : [])];
+  private readonly serviceById = Object.fromEntries(this.services.map(service => [service.id, service]));
+  readonly layout = signal<Layout>({ ...emptyLayout(), ...(this.settings.auth ? this.settings.layout : readLocalLayout()) });
+  private readonly order = {
+    cards: computed(() => arrange(this.cardIds, this.layout().cards)),
+    services: computed(() => arrange(this.services.map(service => service.id), this.layout().services)),
+  };
+  readonly visibleCards = computed(() => this.visible('cards'));
+  readonly visibleServices = computed(() => this.visible('services').map(id => this.serviceById[id]));
+  readonly hiddenCount = computed(() => this.order.cards().filter(id => this.isHidden('cards', id)).length
+    + this.order.services().filter(id => this.isHidden('services', id)).length);
+  private saveTimer?: number;
+  /** Edit mode: items wiggle, can be dragged and hidden; their own controls are paused. */
+  readonly editing = signal(false);
+  // Touch needs a short hold so a quick swipe still scrolls the page.
+  readonly dragDelay = { touch: 180, mouse: 0 };
   /** Whether Moonshine has a Moonlight client waiting for a PIN; null when unknown. */
   readonly pairingWaiting = signal<boolean | null>(null);
   readonly pin = signal('');
@@ -66,6 +97,9 @@ export class Dashboard {
   readonly checkingDevices = signal(false);
   private deviceRequest: AbortController | null = null;
   readonly installPrompt = signal<InstallPrompt | null>(null);
+  /** Running as an installed app (any standalone-like display mode, or iOS home screen). */
+  readonly installed = signal(['standalone', 'fullscreen', 'minimal-ui', 'window-controls-overlay']
+    .some(mode => matchMedia(`(display-mode: ${mode})`).matches) || (navigator as { standalone?: boolean }).standalone === true);
   readonly confirmation = signal<Action | null>(null);
   readonly dialog = inject(MatDialog);
   @ViewChild('confirmDialog') confirmDialog!: TemplateRef<unknown>;
@@ -82,6 +116,7 @@ export class Dashboard {
     void this.refreshPairing();
     const outletPoll = window.setInterval(() => { void this.refreshOutlet(); void this.refreshPairing(); }, 5000);
     inject(DestroyRef).onDestroy(() => {
+      this.flushLayout();
       window.clearInterval(poll);
       window.clearInterval(outletPoll);
       this.clearDevices();
@@ -175,7 +210,7 @@ export class Dashboard {
     this.pairingStatus.set(null);
   }
 
-  canPair() { return !!this.pairing && this.pin().length === 4 && !this.busy() && this.online() && this.hostAvailable(); }
+  canPair() { return !!this.pairing && !this.editing() && this.pin().length === 4 && !this.busy() && this.online() && this.hostAvailable(); }
 
   async pairMoonlight() {
     if (!this.canPair()) return;
@@ -241,7 +276,7 @@ export class Dashboard {
   }
 
   canExecute(action: Action | null) {
-    if (!action || this.busy() || !this.online()) return false;
+    if (!action || this.busy() || !this.online() || this.editing()) return false;
     if (action.id === 'wake') return this.canWake();
     return this.hostAvailable();
   }
@@ -340,7 +375,7 @@ export class Dashboard {
   }
 
   @HostListener('window:appinstalled')
-  installed() { this.installPrompt.set(null); }
+  appInstalled() { this.installPrompt.set(null); this.installed.set(true); }
 
   async install() {
     const prompt = this.installPrompt();
@@ -433,6 +468,80 @@ export class Dashboard {
       this.busy.set(false);
       void this.refreshDevices();
       void this.refreshPower();
+    }
+  }
+
+  private visible(list: Arrangeable) {
+    return this.order[list]().filter(id => this.editing() || this.layout().showHidden || !this.isHidden(list, id));
+  }
+
+  isHidden(list: Arrangeable, id: string) { return this.layout()[HIDDEN[list]].includes(id); }
+
+  /** Rearranging needs a live server to save to (or no accounts at all). */
+  canArrange() { return this.online() && !this.session.cached(); }
+
+  toggleHidden(list: Arrangeable, id: string) {
+    if (!this.canArrange()) return;
+    const key = HIDDEN[list], hidden = this.layout()[key];
+    this.saveLayout({ ...this.layout(), [key]: hidden.includes(id) ? hidden.filter(item => item !== id) : [...hidden, id] });
+  }
+
+  toggleEditing() {
+    if (!this.editing() && !this.canArrange()) return;
+    this.editing.update(editing => !editing);
+  }
+
+  setShowHidden(showHidden: boolean) { this.saveLayout({ ...this.layout(), showHidden }); }
+
+  resetLayout() { this.saveLayout(emptyLayout()); }
+
+  drop(list: Arrangeable, event: CdkDragDrop<unknown>) { this.move(list, event.previousIndex, event.currentIndex); }
+
+  /** Keyboard alternative to dragging: arrow keys on the handle move the item. */
+  nudge(list: Arrangeable, index: number, event: KeyboardEvent) {
+    const step = { ArrowUp: -1, ArrowLeft: -1, ArrowDown: 1, ArrowRight: 1 }[event.key];
+    if (!step) return;
+    event.preventDefault();
+    const target = index + step;
+    if (target < 0 || target >= this.visible(list).length) return;
+    this.move(list, index, target);
+    // The handle is re-rendered at its new position; keep keyboard focus on it.
+    const handle = event.target as HTMLElement;
+    window.setTimeout(() => (handle.isConnected ? handle
+      : document.querySelectorAll<HTMLElement>(`[data-list="${list}"] .drag-handle`)[target])?.focus());
+  }
+
+  private move(list: Arrangeable, from: number, to: number) {
+    if (from === to || !this.canArrange()) return;
+    // Reorder the shown items, leaving hidden ones in their slots of the full order.
+    const shown = this.visible(list), moved = [...shown];
+    moveItemInArray(moved, from, to);
+    let next = 0;
+    const full = this.order[list]().map(id => shown.includes(id) ? moved[next++] : id);
+    this.saveLayout({ ...this.layout(), [list]: full });
+  }
+
+  private saveLayout(layout: Layout) {
+    this.layout.set(layout);
+    if (!this.settings.auth) {
+      try { localStorage.setItem(LOCAL_LAYOUT_KEY, JSON.stringify(layout)); } catch { /* Not persisted. */ }
+      return;
+    }
+    this.session.cacheLayout(layout);
+    // Coalesce quick successive changes (e.g. keyboard moves) into one request.
+    window.clearTimeout(this.saveTimer);
+    this.saveTimer = window.setTimeout(() => void this.flushLayout(), 400);
+  }
+
+  private async flushLayout() {
+    if (this.saveTimer === undefined) return;
+    window.clearTimeout(this.saveTimer);
+    this.saveTimer = undefined;
+    try {
+      await api('/layout', 'PUT', this.layout());
+    } catch (error) {
+        if (error instanceof ApiError && error.status === 401) { this.session.expired(); return; }
+      this.status.set({ severity: 'error', text: 'Could not save your layout. It will reset when you reload.' });
     }
   }
 

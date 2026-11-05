@@ -1,4 +1,4 @@
-<main>
+<main [class.editing]="editing()">
   <header>
     <div class="host-heading">
       <h1>{{ settings.title }}</h1>
@@ -12,6 +12,10 @@
       }
     </div>
     <div class="header-tools">
+      @if (!editing() && (hiddenCount() || layout().showHidden)) {
+        <mat-slide-toggle class="show-hidden" [checked]="layout().showHidden" [disabled]="!canArrange()"
+          (change)="setShowHidden($event.checked)">Show hidden ({{ hiddenCount() }})</mat-slide-toggle>
+      }
       <mat-chip-set aria-label="Connection"><mat-chip>{{ online() ? 'Local & tailnet' : 'Offline' }}</mat-chip></mat-chip-set>
       @if (session.account; as account) {
         <button mat-button class="account-button" [matMenuTriggerFor]="accountMenu" [attr.aria-label]="'Account: ' + account.username">
@@ -21,12 +25,23 @@
           @if (account.admin) {
             <button mat-menu-item [disabled]="session.cached()" (click)="session.show('users')"><span class="menu-item"><erebor-icon name="users" />Manage users</span></button>
           }
+          <button mat-menu-item [disabled]="!canArrange()" (click)="resetLayout()"><span class="menu-item"><erebor-icon name="reset" />Reset layout</span></button>
           <button mat-menu-item [disabled]="session.cached()" (click)="changePassword()"><span class="menu-item"><erebor-icon name="key" />Change password</span></button>
           <button mat-menu-item (click)="session.logout()"><span class="menu-item"><erebor-icon name="logout" />Sign out</span></button>
         </mat-menu>
       }
+      @if (cardIds.length || services.length) {
+        <button mat-icon-button class="edit-button" [class.active]="editing()" [disabled]="!editing() && !canArrange()"
+          (click)="toggleEditing()" [attr.aria-pressed]="editing()"
+          [attr.aria-label]="editing() ? 'Done editing layout' : 'Edit layout'" [title]="editing() ? 'Done' : 'Edit layout'">
+          <erebor-icon [name]="editing() ? 'check' : 'edit'" />
+        </button>
+      }
     </div>
   </header>
+  @if (editing()) {
+    <p class="notice edit-hint" role="status">Drag cards and services to rearrange them. Use the eye to hide or show one. Changes are saved to your account.</p>
+  }
   <p class="intro">{{ settings.description }}</p>
   @if (hasOutlet) {
     <section class="outlet-panel" aria-labelledby="outlet-title">
@@ -55,14 +70,30 @@
   @if (actions.length) {
   <section aria-labelledby="quick-actions-title">
     <h2 id="quick-actions-title">Quick actions</h2>
-    <div class="device-controls">
-      @for (device of deviceControls; track device.id) {
-        <div class="device-control" [attr.data-device]="device.id" role="group" [attr.aria-label]="device.label">
+    <div class="device-controls" cdkDropList cdkDropListOrientation="mixed" data-list="cards" (cdkDropListDropped)="drop('cards', $event)">
+      @for (id of visibleCards(); track id; let i = $index) {
+        @if (id !== 'moonshine-pair') {
+        @let device = deviceById[id];
+        <div class="device-control" cdkDrag [cdkDragDisabled]="!editing() || !canArrange()" [cdkDragStartDelay]="dragDelay" [class.is-hidden]="isHidden('cards', id)"
+          [attr.data-device]="device.id" role="group" [attr.aria-label]="device.label">
           <div class="state-summary" aria-live="polite">
             <div class="state-heading">
               <erebor-icon [name]="device.icon" />
               <span>{{ device.label }}</span>
               <strong [attr.data-state]="devices()?.[device.id]?.state ?? 'unknown'">{{ deviceLabel(device.id) }}</strong>
+              @if (editing()) {
+              <span class="item-tools">
+                <button type="button" class="item-tool" [class.active]="isHidden('cards', id)" [disabled]="!canArrange()"
+                  (click)="toggleHidden('cards', id)" [attr.aria-pressed]="isHidden('cards', id)"
+                  [attr.aria-label]="'Hide ' + device.label" [title]="isHidden('cards', id) ? 'Hidden — click to show' : 'Hide'">
+                  <erebor-icon [name]="isHidden('cards', id) ? 'eye-off' : 'eye'" />
+                </button>
+                <button type="button" class="item-tool drag-handle" [disabled]="!canArrange()"
+                  (keydown)="nudge('cards', i, $event)" [attr.aria-label]="'Move ' + device.label + ' (arrow keys)'" title="Drag the card, or use arrow keys here">
+                  <erebor-icon name="grip" />
+                </button>
+              </span>
+              }
             </div>
             <p [id]="device.id + '-detail'">{{ deviceDetail(device.id) }}</p>
           </div>
@@ -77,14 +108,26 @@
             }
           </div>
         </div>
-      }
-      @if (pairing) {
-        <form class="device-control pairing" role="group" aria-label="Moonlight pairing" (submit)="$event.preventDefault(); pairMoonlight()">
+        } @else {
+        <form class="device-control pairing" cdkDrag [cdkDragDisabled]="!editing() || !canArrange()" [cdkDragStartDelay]="dragDelay" [class.is-hidden]="isHidden('cards', id)" role="group" aria-label="Moonlight pairing" (submit)="$event.preventDefault(); pairMoonlight()">
           <div class="state-summary" aria-live="polite">
             <div class="state-heading">
               <erebor-icon name="gamepad" />
               <span>Moonlight pairing</span>
               <strong [attr.data-state]="pairingWaiting() ? 'mixed' : 'unknown'">{{ pairingLabel() }}</strong>
+              @if (editing()) {
+              <span class="item-tools">
+                <button type="button" class="item-tool" [class.active]="isHidden('cards', id)" [disabled]="!canArrange()"
+                  (click)="toggleHidden('cards', id)" [attr.aria-pressed]="isHidden('cards', id)"
+                  [attr.aria-label]="'Hide ' + 'Moonlight pairing'" [title]="isHidden('cards', id) ? 'Hidden — click to show' : 'Hide'">
+                  <erebor-icon [name]="isHidden('cards', id) ? 'eye-off' : 'eye'" />
+                </button>
+                <button type="button" class="item-tool drag-handle" [disabled]="!canArrange()"
+                  (keydown)="nudge('cards', i, $event)" [attr.aria-label]="'Move ' + 'Moonlight pairing' + ' (arrow keys)'" title="Drag the card, or use arrow keys here">
+                  <erebor-icon name="grip" />
+                </button>
+              </span>
+              }
             </div>
             <p id="pairing-detail">{{ pairingWaiting()
               ? 'A Moonlight client is waiting. Enter the 4-digit PIN it shows.'
@@ -100,6 +143,7 @@
             <p class="pairing-status" [class.error]="message.severity === 'error'" [class.success]="message.severity === 'success'" role="status">{{ message.text }}</p>
           }
         </form>
+        }
       }
     </div>
     <div class="actions">
@@ -115,19 +159,34 @@
     }
   </section>
   }
-  @if (services.length) {
+  @if (visibleServices().length) {
   <section aria-labelledby="services-title" class="services-section">
     <h2 id="services-title">Services</h2>
-    <div class="services">
-      @for (service of services; track service.id) {
+    <div class="services" cdkDropList cdkDropListOrientation="mixed" data-list="services" (cdkDropListDropped)="drop('services', $event)">
+      @for (service of visibleServices(); track service.id; let i = $index) {
+        <div class="service-item" cdkDrag [cdkDragDisabled]="!editing() || !canArrange()" [cdkDragStartDelay]="dragDelay" [class.is-hidden]="isHidden('services', service.id)">
         <a mat-button class="service" [class.unavailable]="!hostAvailable()" [id]="service.id"
-          [disabled]="!hostAvailable()" [attr.href]="hostAvailable() ? service.url : null">
+          [disabled]="!hostAvailable()" [attr.href]="hostAvailable() && !editing() ? service.url : null"
+          [attr.inert]="editing() ? '' : null">
           <span class="service-content">
             <span class="service-icon"><erebor-icon [name]="service.icon" /></span>
             <span class="service-text"><span class="service-title">{{ service.label }}</span><span class="description">{{ service.description }}</span></span>
-            <erebor-icon name="arrow" class="arrow" />
           </span>
         </a>
+        @if (editing()) {
+        <span class="item-tools">
+          <button type="button" class="item-tool" [class.active]="isHidden('services', service.id)" [disabled]="!canArrange()"
+            (click)="toggleHidden('services', service.id)" [attr.aria-pressed]="isHidden('services', service.id)"
+            [attr.aria-label]="'Hide ' + service.label" [title]="isHidden('services', service.id) ? 'Hidden — click to show' : 'Hide'">
+            <erebor-icon [name]="isHidden('services', service.id) ? 'eye-off' : 'eye'" />
+          </button>
+          <button type="button" class="item-tool drag-handle" [disabled]="!canArrange()"
+            (keydown)="nudge('services', i, $event)" [attr.aria-label]="'Move ' + service.label + ' (arrow keys)'" title="Drag the card, or use arrow keys here">
+            <erebor-icon name="grip" />
+          </button>
+        </span>
+        }
+        </div>
       }
     </div>
   </section>
@@ -135,7 +194,9 @@
   @if (settings.auth && !actions.length && !services.length && !hasOutlet && !showHostStatus) {
     <p class="notice">Nothing has been shared with your account yet. Ask an administrator to choose what you can see.</p>
   }
+  @if (!installed()) {
   <footer>Install from your browser menu. On iPhone or iPad, use Share → Add to Home Screen.</footer>
+  }
   <ng-template #confirmDialog>
     <h2 mat-dialog-title id="confirm-title">{{ confirmation()?.label }}?</h2>
     <mat-dialog-content id="confirm-description">{{ confirmation()?.confirm }}</mat-dialog-content>

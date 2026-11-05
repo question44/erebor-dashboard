@@ -144,5 +144,54 @@ class Passwords(unittest.TestCase):
         self.assertFalse(auth.verify_password("secret pw", "garbage"))
 
 
+class Layouts(unittest.TestCase):
+    def setUp(self):
+        self.client = isolated_store(self)
+        setup_admin(self.client)
+
+    def save(self, layout):
+        return self.client.put("/api/control/layout", headers=HEADERS, json=layout)
+
+    def test_round_trip_is_per_account(self):
+        empty = {"cards": [], "services": [], "hiddenCards": [], "hiddenServices": [], "showHidden": False}
+        self.assertEqual(self.client.get("/api/control/config").json()["layout"], empty)
+        layout = {"cards": ["profile", "display", "profile"], "services": ["code", "media"],
+                  "hiddenCards": ["screen"], "hiddenServices": ["media"], "showHidden": True}
+        self.assertEqual(self.save(layout).status_code, 200)
+        saved = self.client.get("/api/control/config").json()["layout"]
+        self.assertEqual(saved, {**layout, "cards": ["profile", "display"]})
+        self.client.post("/api/control/users", headers=HEADERS,
+                         json={"username": "guest", "password": "guest password"})
+        self.client.post("/api/control/auth/logout", headers=HEADERS, json={})
+        self.client.post("/api/control/auth/login", headers=HEADERS,
+                         json={"username": "guest", "password": "guest password"})
+        self.assertEqual(self.client.get("/api/control/config").json()["layout"], empty)
+
+    def test_rejects_invalid_layouts(self):
+        for layout in [{"cards": "display"}, {"extra": []}, {"cards": [""]}, {"cards": ["x"] * 49},
+                       {"services": [1]}]:
+            with self.subTest(layout=layout):
+                self.assertEqual(self.save(layout).status_code, 400)
+
+    def test_requires_sign_in(self):
+        self.client.post("/api/control/auth/logout", headers=HEADERS, json={})
+        self.assertEqual(self.save({}).status_code, 401)
+
+    def test_migrates_existing_database(self):
+        import sqlite3, tempfile
+        from contextlib import closing
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "users.sqlite3"
+            with closing(sqlite3.connect(path)) as db, db:
+                db.execute("CREATE TABLE users (username TEXT PRIMARY KEY, password TEXT NOT NULL, "
+                           "admin INTEGER NOT NULL DEFAULT 0, permissions TEXT NOT NULL DEFAULT '{}', created REAL NOT NULL)")
+                db.execute("INSERT INTO users VALUES ('old', 'x', 1, '{}', 0)")
+            store = auth.Store(path)
+            self.assertEqual(store.layout("old")["cards"], [])
+            store.set_layout("old", {"cards": ["profile"]})
+            self.assertEqual(store.layout("old")["cards"], ["profile"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -68,6 +68,13 @@ when the current hostname ends with `domainSuffix`, the link becomes
 and supplied port/scheme. Available icons: display, light, sleep, power, media,
 cloud, sync, torrent, code, system, windows, arrow.
 
+With accounts enabled, each user can tap the pencil (top right) to enter edit
+mode: cards and services wiggle, can be dragged into a new order (arrow keys on
+the move button also work) and hidden with the eye button. A **Show hidden**
+toggle reveals hidden items again. The arrangement is stored per account in the
+API's SQLite database (`PUT /api/control/layout`); without accounts it is kept
+in the browser. The sign-in screen lists accounts recently used on that device.
+
 ## Optional controls
 
 Enable `services.erebor-dashboard.control.enable`, set `control.user` to the

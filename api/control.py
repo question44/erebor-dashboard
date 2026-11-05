@@ -18,7 +18,7 @@ from fastapi import Cookie, Depends, FastAPI, Header, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.exceptions import HTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -574,7 +574,8 @@ def change_own_password(change: PasswordChange, user: User, request: Request):
 @app.get("/api/control/config")
 def read_config(user: User):
     """Dashboard settings reduced to what this account may see."""
-    return {**catalog().view(user), "user": {"username": user["username"], "admin": user["admin"]}}
+    return {**catalog().view(user), "user": {"username": user["username"], "admin": user["admin"]},
+            "layout": store().layout(user["username"])}
 
 
 @app.get("/api/control/users")
@@ -610,6 +611,29 @@ def delete_user(username: str, admin: Admin):
     except auth.AuthError as exc:
         return auth_failure(exc)
     return ControlResult(message="User deleted")
+
+
+LayoutId = Annotated[str, StringConstraints(min_length=1, max_length=64)]
+LayoutList = Annotated[list[LayoutId], Field(max_length=48)]
+
+
+class Layout(BaseModel):
+    """Order and visibility of this account's cards and services; unknown IDs are ignored by the UI."""
+    model_config = ConfigDict(extra="forbid")
+    cards: LayoutList = []
+    services: LayoutList = []
+    hiddenCards: LayoutList = []
+    hiddenServices: LayoutList = []
+    showHidden: bool = False
+
+
+@app.put("/api/control/layout", response_model=ControlResult)
+def save_layout(layout: Layout, user: User):
+    try:
+        store().set_layout(user["username"], layout.model_dump())
+    except auth.AuthError as exc:
+        return auth_failure(exc)
+    return ControlResult(message="Layout saved")
 
 
 class PairingPin(BaseModel):

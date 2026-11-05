@@ -22,6 +22,8 @@ MAX_PASSWORD = 256
 # Dashboard sections that can be hidden independently of their items.
 MODULES = ("host-status", "outlet", "quick-actions", "services")
 SCRYPT = {"n": 2 ** 15, "r": 8, "p": 1}
+# Per-account dashboard arrangement: ordered and hidden card/service IDs.
+LAYOUT_LISTS = ("cards", "services", "hiddenCards", "hiddenServices")
 
 
 class AuthError(Exception):
@@ -168,6 +170,10 @@ class Store:
                     expires REAL NOT NULL
                 );
             """)
+            columns = {row[1] for row in db.execute("PRAGMA table_info(users)")}
+            if "layout" not in columns:
+                db.execute("ALTER TABLE users ADD COLUMN layout TEXT NOT NULL DEFAULT '{}'")
+                db.commit()
         os.chmod(self.path, 0o600)
 
     @contextmanager
@@ -207,7 +213,8 @@ class Store:
             # The write lock makes the empty check and insert atomic across requests.
             if db.execute("SELECT COUNT(*) FROM users").fetchone()[0]:
                 raise AuthError("Setup is already complete", 409)
-            db.execute("INSERT INTO users VALUES (?, ?, 1, '{}', ?)", (username, hashed, time.time()))
+            db.execute("INSERT INTO users (username, password, admin, permissions, created) VALUES (?, ?, 1, '{}', ?)",
+                       (username, hashed, time.time()))
             return self._new_session(db, username)
 
     def login(self, username, password) -> str:
@@ -244,6 +251,26 @@ class Store:
                 db.execute("UPDATE sessions SET expires = ? WHERE token = ?", (now + SESSION_SECONDS, token_hash(token)))
             return self._user(row), renew
 
+    def layout(self, username) -> dict:
+        with self.connect() as db:
+            row = db.execute("SELECT layout FROM users WHERE username = ?", (username,)).fetchone()
+        try:
+            stored = json.loads(row["layout"]) if row else {}
+        except ValueError:
+            stored = {}
+        layout = {key: [v for v in stored.get(key, []) if isinstance(v, str)] if isinstance(stored.get(key), list) else []
+                  for key in LAYOUT_LISTS}
+        layout["showHidden"] = stored.get("showHidden") is True
+        return layout
+
+    def set_layout(self, username, layout: dict):
+        clean = {key: list(dict.fromkeys(layout.get(key, []))) for key in LAYOUT_LISTS}
+        clean["showHidden"] = bool(layout.get("showHidden"))
+        with self.connect() as db:
+            if not db.execute("UPDATE users SET layout = ? WHERE username = ?",
+                              (json.dumps(clean), username)).rowcount:
+                raise AuthError("User not found", 404)
+
     def logout(self, token):
         if token:
             with self.connect() as db:
@@ -260,7 +287,7 @@ class Store:
         with self.connect() as db:
             if db.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone():
                 raise AuthError("That username already exists", 409)
-            db.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?)",
+            db.execute("INSERT INTO users (username, password, admin, permissions, created) VALUES (?, ?, ?, ?, ?)",
                        (username, hashed, int(bool(admin)), json.dumps(permissions), time.time()))
 
     def update(self, actor, username, *, password=None, admin=None, permissions=None, keep_token=None):
