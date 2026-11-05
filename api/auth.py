@@ -24,6 +24,19 @@ MODULES = ("host-status", "outlet", "quick-actions", "services")
 SCRYPT = {"n": 2 ** 15, "r": 8, "p": 1}
 # Per-account dashboard arrangement: ordered and hidden card/service IDs.
 LAYOUT_LISTS = ("cards", "services", "hiddenCards", "hiddenServices")
+# Sections that can be folded to their first N rows.
+LAYOUT_SECTIONS = ("cards", "services")
+MAX_FOLD_ROWS = 50
+
+
+def clean_folds(stored: dict) -> dict:
+    folded = stored.get("folded")
+    rows = stored.get("foldRows")
+    return {
+        "folded": [s for s in LAYOUT_SECTIONS if isinstance(folded, list) and s in folded],
+        "foldRows": {s: rows[s] for s in LAYOUT_SECTIONS if isinstance(rows, dict) and type(rows.get(s)) is int
+                     and 1 <= rows[s] <= MAX_FOLD_ROWS},
+    }
 
 
 class AuthError(Exception):
@@ -261,11 +274,12 @@ class Store:
         layout = {key: [v for v in stored.get(key, []) if isinstance(v, str)] if isinstance(stored.get(key), list) else []
                   for key in LAYOUT_LISTS}
         layout["showHidden"] = stored.get("showHidden") is True
-        return layout
+        return {**layout, **clean_folds(stored if isinstance(stored, dict) else {})}
 
     def set_layout(self, username, layout: dict):
         clean = {key: list(dict.fromkeys(layout.get(key, []))) for key in LAYOUT_LISTS}
         clean["showHidden"] = bool(layout.get("showHidden"))
+        clean.update(clean_folds(layout))
         with self.connect() as db:
             if not db.execute("UPDATE users SET layout = ? WHERE username = ?",
                               (json.dumps(clean), username)).rowcount:

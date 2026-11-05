@@ -194,3 +194,22 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--primary); outli
   .editing .action-tile:nth-child(2n), .editing .spacer-tile:nth-child(2n) { animation-duration: .3s; animation-delay: -.12s; }
 }
 .cdk-drag-preview.action-tile, .cdk-drag-preview.spacer-tile { background: var(--paper); border-radius: 24px; }
+
+// Folding: a section can collapse to its first N rows; N is set by dragging the fold line in edit mode.
+.section-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 16px; }
+.section-heading h2 { margin: 0; }
+.fold-toggle.mat-mdc-icon-button { color: var(--secondary); transition: transform .2s; }
+.fold-toggle:not(.folded) { transform: rotate(180deg); }
+.fold-toggle erebor-icon { width: 22px; height: 22px; }
+.fold-clip { position: relative; transition: max-height .3s cubic-bezier(.2, 0, 0, 1); }
+.fold-clip.clipped { overflow: hidden; }
+.device-controls, .services { position: relative; }
+.fold-clip > .device-controls { margin-bottom: 0; }
+.fold-clip + * { margin-top: 12px; }
+.fold-more { display: flex; align-items: center; gap: 6px; margin: 10px auto 16px; padding: 6px 16px; border: 0; border-radius: 999px; background: var(--paper); color: var(--secondary); font: inherit; font-size: .8rem; font-weight: 600; cursor: pointer; }
+.fold-more erebor-icon { width: 16px; height: 16px; }
+.fold-line { position: absolute; left: -8px; right: -8px; height: 0; border-top: 2px dashed var(--primary); z-index: 5; pointer-events: none; transform: translateY(-1px); }
+.fold-line:not(.dragging) { transition: top .2s cubic-bezier(.2, 0, 0, 1); }
+.fold-grip { position: absolute; left: 50%; top: 0; transform: translate(-50%, -50%); display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border: 0; border-radius: 999px; background: var(--primary); color: var(--page); font: inherit; font-size: .8rem; font-weight: 600; white-space: nowrap; cursor: ns-resize; touch-action: none; pointer-events: auto; box-shadow: 0 2px 8px rgb(0 0 0 / .2); }
+.fold-grip erebor-icon { width: 16px; height: 16px; }
+.fold-line.dragging .fold-grip { cursor: grabbing; scale: 1.05; }

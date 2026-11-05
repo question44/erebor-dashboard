@@ -625,6 +625,8 @@ class Layout(BaseModel):
     hiddenCards: LayoutList = []
     hiddenServices: LayoutList = []
     showHidden: bool = False
+    folded: list[Literal["cards", "services"]] = []
+    foldRows: dict[Literal["cards", "services"], Annotated[int, Field(ge=1, le=auth.MAX_FOLD_ROWS)]] = {}
 
 
 @app.put("/api/control/layout", response_model=ControlResult)

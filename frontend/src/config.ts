@@ -5,10 +5,14 @@ export interface Service {
 }
 export interface Account { username: string; admin: boolean; }
 /** Per-account arrangement of quick-action cards and services; IDs not listed keep the default order. */
+export type Section = 'cards' | 'services';
 export interface Layout {
   cards: string[]; services: string[]; hiddenCards: string[]; hiddenServices: string[]; showHidden: boolean;
+  /** Sections collapsed to their first `foldRows` rows (default 1). */
+  folded: Section[]; foldRows: Partial<Record<Section, number>>;
 }
-export const emptyLayout = (): Layout => ({ cards: [], services: [], hiddenCards: [], hiddenServices: [], showHidden: false });
+export const emptyLayout = (): Layout => ({ cards: [], services: [], hiddenCards: [], hiddenServices: [], showHidden: false,
+  folded: [], foldRows: {} });
 export interface Settings {
   title: string; description: string; domainSuffix: string;
   actions: string[]; services: Service[];
@@ -59,6 +63,8 @@ export const paths: Record<string, string> = {
   'eye-off': 'M3 3l18 18 M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4.1 M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a9.8 9.8 0 0 0 5.4-1.6 M9.9 9.9a3 3 0 0 0 4.2 4.2',
   reset: 'M3 12a9 9 0 1 0 3-6.7L3 8 M3 3v5h5',
   check: 'M5 12.5l4.5 4.5L19 7',
+  chevron: 'M6 9l6 6 6-6',
+  'fold-grip': 'M8 5l4-3 4 3 M8 19l4 3 4-3 M4 12h16',
   gauge: 'M12 14l4-4 M3.3 19a10 10 0 1 1 17.4 0',
 };
 

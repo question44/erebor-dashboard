@@ -153,10 +153,12 @@ class Layouts(unittest.TestCase):
         return self.client.put("/api/control/layout", headers=HEADERS, json=layout)
 
     def test_round_trip_is_per_account(self):
-        empty = {"cards": [], "services": [], "hiddenCards": [], "hiddenServices": [], "showHidden": False}
+        empty = {"cards": [], "services": [], "hiddenCards": [], "hiddenServices": [], "showHidden": False,
+                 "folded": [], "foldRows": {}}
         self.assertEqual(self.client.get("/api/control/config").json()["layout"], empty)
         layout = {"cards": ["profile", "display", "profile"], "services": ["code", "media"],
-                  "hiddenCards": ["screen"], "hiddenServices": ["media"], "showHidden": True}
+                  "hiddenCards": ["screen"], "hiddenServices": ["media"], "showHidden": True,
+                  "folded": ["services"], "foldRows": {"cards": 2, "services": 1}}
         self.assertEqual(self.save(layout).status_code, 200)
         saved = self.client.get("/api/control/config").json()["layout"]
         self.assertEqual(saved, {**layout, "cards": ["profile", "display"]})
@@ -169,6 +171,7 @@ class Layouts(unittest.TestCase):
 
     def test_rejects_invalid_layouts(self):
         for layout in [{"cards": "display"}, {"extra": []}, {"cards": [""]}, {"cards": ["x"] * 49},
+                       {"folded": ["header"]}, {"foldRows": {"cards": 0}}, {"foldRows": {"other": 1}},
                        {"services": [1]}]:
             with self.subTest(layout=layout):
                 self.assertEqual(self.save(layout).status_code, 400)

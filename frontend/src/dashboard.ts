@@ -1,4 +1,4 @@
-import { Component, DestroyRef, HostListener, TemplateRef, ViewChild, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, ElementRef, HostListener, TemplateRef, ViewChild, computed, effect, inject, signal } from '@angular/core';
 import { CdkDrag, CdkDragDrop, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { A11yModule } from '@angular/cdk/a11y';
@@ -6,7 +6,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatMenuModule } from '@angular/material/menu';
-import { Action, ApiError, Layout, Settings, api, availableActions, emptyLayout, resolveServices } from './config';
+import { Action, ApiError, Layout, Section, Settings, api, availableActions, emptyLayout, resolveServices } from './config';
 import { Icon } from './icon';
 import { Session } from './session';
 import { PasswordDialog } from './users';
@@ -23,7 +23,7 @@ interface PowerStatus {
 }
 interface Status { severity: 'info' | 'success' | 'error'; text: string; }
 interface OutletStatus { on: boolean; watts: number; todayKwh: number; monthKwh: number; }
-type Arrangeable = 'cards' | 'services';
+type Arrangeable = Section;
 const HIDDEN = { cards: 'hiddenCards', services: 'hiddenServices' } as const;
 // Layout for dashboards without accounts, where there is no server-side profile.
 const LOCAL_LAYOUT_KEY = 'erebor-dashboard-layout';
@@ -81,6 +81,14 @@ export class Dashboard {
   readonly editing = signal(false);
   // Touch needs a short hold so a quick swipe still scrolls the page.
   readonly dragDelay = { touch: 180, mouse: 0 };
+  /** Bottom edge (px from the grid top) of each rendered row, measured from the DOM. */
+  readonly rowBottoms = { cards: signal<number[]>([]), services: signal<number[]>([]) };
+  /** Pointer position of the fold line while it is being dragged in edit mode. */
+  readonly foldDrag = signal<{ list: Section; y: number } | null>(null);
+  private readonly grids: Partial<Record<Section, HTMLElement>> = {};
+  private readonly observers: Partial<Record<Section, { resize: ResizeObserver; mutation: MutationObserver }>> = {};
+  @ViewChild('cardsGrid') set cardsGrid(ref: ElementRef<HTMLElement> | undefined) { this.observeGrid('cards', ref?.nativeElement); }
+  @ViewChild('servicesGrid') set servicesGrid(ref: ElementRef<HTMLElement> | undefined) { this.observeGrid('services', ref?.nativeElement); }
   /** Whether Moonshine has a Moonlight client waiting for a PIN; null when unknown. */
   readonly pairingWaiting = signal<boolean | null>(null);
   readonly pin = signal('');
@@ -123,8 +131,19 @@ export class Dashboard {
     }, 10000);
     void this.refreshPairing();
     const outletPoll = window.setInterval(() => { void this.refreshOutlet(); void this.refreshPairing(); }, 5000);
+    // Items below the fold are out of reach for keyboard and screen readers too.
+    effect(() => {
+      for (const list of ['cards', 'services'] as const) {
+        const grid = this.grids[list], cut = this.clipHeight(list);
+        this.rowBottoms[list]();
+        if (!grid) continue;
+        for (const child of Array.from(grid.children) as HTMLElement[])
+          child.toggleAttribute('inert', cut !== null && child.offsetTop >= cut);
+      }
+    });
     inject(DestroyRef).onDestroy(() => {
       this.flushLayout();
+      for (const list of ['cards', 'services'] as const) this.observeGrid(list, undefined);
       window.clearInterval(poll);
       window.clearInterval(outletPoll);
       this.clearDevices();
@@ -481,6 +500,120 @@ export class Dashboard {
 
   private visible(list: Arrangeable) {
     return this.order[list]().filter(id => this.editing() || this.layout().showHidden || !this.isHidden(list, id));
+  }
+
+  private observeGrid(list: Section, grid: HTMLElement | undefined) {
+    if (this.grids[list] === grid) return;
+    this.observers[list]?.resize.disconnect();
+    this.observers[list]?.mutation.disconnect();
+    delete this.observers[list];
+    this.grids[list] = grid;
+    if (!grid) { this.rowBottoms[list].set([]); return; }
+    const measure = () => this.measureRows(list);
+    const resize = new ResizeObserver(measure), mutation = new MutationObserver(measure);
+    resize.observe(grid);
+    mutation.observe(grid, { childList: true });
+    this.observers[list] = { resize, mutation };
+    measure();
+  }
+
+  private measureRows(list: Section) {
+    const grid = this.grids[list];
+    if (!grid) return;
+    // Group items by their top edge; a row ends at its tallest item.
+    const rows = new Map<number, number>();
+    for (const child of Array.from(grid.children) as HTMLElement[]) {
+      if (child.classList.contains('cdk-drag-placeholder') || !child.offsetHeight) continue;
+      const top = Math.round(child.offsetTop);
+      rows.set(top, Math.max(rows.get(top) ?? 0, top + child.offsetHeight));
+    }
+    const bottoms = [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([, bottom]) => bottom);
+    if (JSON.stringify(bottoms) !== JSON.stringify(this.rowBottoms[list]())) this.rowBottoms[list].set(bottoms);
+  }
+
+  foldRows(list: Section) {
+    return Math.max(1, Math.min(this.layout().foldRows[list] ?? 1, this.rowBottoms[list]().length || 1));
+  }
+
+  isFolded(list: Section) { return this.layout().folded.includes(list); }
+
+  /** Whether folding would hide anything in this section. */
+  canFold(list: Section) { return this.rowBottoms[list]().length > this.foldRows(list); }
+
+  /** Max height of the section while folded; null when everything is shown (always in edit mode). */
+  clipHeight(list: Section): number | null {
+    if (this.editing() || !this.isFolded(list) || !this.canFold(list)) return null;
+    return this.rowBottoms[list]()[this.foldRows(list) - 1];
+  }
+
+  hiddenRows(list: Section) { return this.rowBottoms[list]().length - this.foldRows(list); }
+
+  toggleFold(list: Section) {
+    const folded = this.layout().folded;
+    this.saveLayout({ ...this.layout(), folded: folded.includes(list) ? folded.filter(s => s !== list) : [...folded, list] });
+  }
+
+  /** Where the fold line sits in edit mode: under row N, or under the pointer while dragging. */
+  foldLineTop(list: Section) {
+    const drag = this.foldDrag();
+    if (drag?.list === list) return drag.y;
+    const bottoms = this.rowBottoms[list](), n = this.foldRows(list);
+    return bottoms[n - 1] + (n < bottoms.length ? (this.rowTop(list, n) - bottoms[n - 1]) / 2 : 6);
+  }
+
+  private rowTop(list: Section, index: number) {
+    const grid = this.grids[list];
+    const tops = [...new Set((Array.from(grid?.children ?? []) as HTMLElement[]).filter(c => c.offsetHeight)
+      .map(c => Math.round(c.offsetTop)))].sort((a, b) => a - b);
+    return tops[index] ?? 0;
+  }
+
+  /** Row count shown on the fold grip: the snap target while dragging. */
+  foldLabel(list: Section) {
+    const drag = this.foldDrag();
+    return drag?.list === list ? this.nearestRows(list, drag.y) : this.foldRows(list);
+  }
+
+  /** Row count the fold line snaps to for a pointer position. */
+  private nearestRows(list: Section, y: number) {
+    const bottoms = this.rowBottoms[list]();
+    let best = 1;
+    bottoms.forEach((bottom, i) => { if (Math.abs(bottom - y) < Math.abs(bottoms[best - 1] - y)) best = i + 1; });
+    return best;
+  }
+
+  startFoldDrag(list: Section, event: PointerEvent) {
+    const grid = this.grids[list];
+    if (!grid || !this.canArrange()) return;
+    event.preventDefault();
+    const handle = event.currentTarget as HTMLElement;
+    handle.setPointerCapture(event.pointerId);
+    const top = grid.getBoundingClientRect().top, max = grid.offsetHeight;
+    const move = (e: PointerEvent) => this.foldDrag.set({ list, y: Math.max(0, Math.min(max, e.clientY - top)) });
+    const end = (e: PointerEvent) => {
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', end);
+      handle.removeEventListener('pointercancel', end);
+      const y = this.foldDrag()?.y;
+      this.foldDrag.set(null);
+      if (y !== undefined && e.type === 'pointerup') this.setFoldRows(list, this.nearestRows(list, y));
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', end);
+    handle.addEventListener('pointercancel', end);
+    move(event);
+  }
+
+  nudgeFold(list: Section, event: KeyboardEvent) {
+    const step = { ArrowUp: -1, ArrowDown: 1 }[event.key];
+    if (!step) return;
+    event.preventDefault();
+    this.setFoldRows(list, Math.max(1, Math.min(this.rowBottoms[list]().length, this.foldRows(list) + step)));
+  }
+
+  private setFoldRows(list: Section, rows: number) {
+    if (rows === (this.layout().foldRows[list] ?? 1)) return;
+    this.saveLayout({ ...this.layout(), foldRows: { ...this.layout().foldRows, [list]: rows } });
   }
 
   cardKind(id: string) {
