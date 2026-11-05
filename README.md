@@ -102,9 +102,35 @@ handle {
 }
 ```
 
-Keep the network restriction: same-origin checks are a browser boundary, not
-user authentication. The API requires matching Host/Origin, JSON, and
-`X-Erebor-Control: 1` for POSTs, bounds bodies to 256 bytes, and disables caching.
+Keep the network restriction: it also protects the first-run setup page.
+The API requires matching Host/Origin, JSON, and `X-Erebor-Control: 1` for
+POST/PUT/DELETE, bounds bodies (256 bytes for actions, 4 KiB for accounts),
+and disables caching.
+
+### Users
+
+Enabling the control API turns on accounts. The public `config.json` then
+contains only title, description and `domainSuffix`; services, actions and NanoKVM
+URLs are served per user by `GET /api/control/config` after sign-in.
+
+- **First run:** with no accounts, the dashboard shows a setup wizard that creates
+  the administrator. Setup is refused once any account exists.
+- **Administrators** see everything configured and manage users from the account
+  menu → *Manage users*. They cannot delete or demote themselves, so one
+  administrator always remains.
+- **Other users** get a set of modules (`host-status`, `outlet`, `quick-actions`,
+  `services`), services (by `id`) and actions. Turning a module off hides all its
+  items. Actions are enforced by the API (403 otherwise); hiding a service only
+  removes its link and does not protect the service itself.
+- Accounts and sessions are in `~/.local/state/erebor-dashboard/users.sqlite3`
+  (systemd `StateDirectory`, mode 0600) for the control user. Passwords use scrypt.
+  Sessions are 30-day sliding `HttpOnly; SameSite=Strict` cookies on `/api/control`,
+  `Secure` behind HTTPS. Changing a password signs that user out elsewhere.
+  Five failed sign-ins lock the account with growing delays (up to 15 minutes).
+- **Recovery:** stop `dashboard-control` (user unit) and delete `users.sqlite3`
+  to return to the setup wizard.
+- The installed app remembers the last signed-in view, so Wake and the cached
+  dashboard still work while the host sleeps. Signing out clears it.
 Status, OpenAPI and Swagger UI are under `/api/control/`.
 
 The standalone command accepts environment variables `DASHBOARD_HOSTS` and

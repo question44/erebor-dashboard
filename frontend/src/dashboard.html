@@ -2,7 +2,7 @@
   <header>
     <div class="host-heading">
       <h1>{{ settings.title }}</h1>
-      @if (hasWake) {
+      @if (showHostStatus) {
         <span class="host-status" role="status" [attr.data-state]="nixosResponding() ? 'awake' : power()?.state ?? 'unknown'"
           [attr.aria-label]="'System: ' + hostLabel()"
           [title]="hostDetail()">
@@ -11,7 +11,21 @@
         </span>
       }
     </div>
-    <mat-chip-set aria-label="Connection"><mat-chip>{{ online() ? 'Local & tailnet' : 'Offline' }}</mat-chip></mat-chip-set>
+    <div class="header-tools">
+      <mat-chip-set aria-label="Connection"><mat-chip>{{ online() ? 'Local & tailnet' : 'Offline' }}</mat-chip></mat-chip-set>
+      @if (session.account; as account) {
+        <button mat-button class="account-button" [matMenuTriggerFor]="accountMenu" [attr.aria-label]="'Account: ' + account.username">
+          <span class="account-content"><erebor-icon name="user" /><span>{{ account.username }}</span></span>
+        </button>
+        <mat-menu #accountMenu="matMenu" xPosition="before">
+          @if (account.admin) {
+            <button mat-menu-item [disabled]="session.cached()" (click)="session.show('users')"><span class="menu-item"><erebor-icon name="users" />Manage users</span></button>
+          }
+          <button mat-menu-item [disabled]="session.cached()" (click)="changePassword()"><span class="menu-item"><erebor-icon name="key" />Change password</span></button>
+          <button mat-menu-item (click)="session.logout()"><span class="menu-item"><erebor-icon name="logout" />Sign out</span></button>
+        </mat-menu>
+      }
+    </div>
   </header>
   <p class="intro">{{ settings.description }}</p>
   @if (hasOutlet) {
@@ -35,6 +49,8 @@
   }
   @if (!online()) {
     <p class="notice warning" role="status">Offline — reconnect to use services and controls.</p>
+  } @else if (session.cached()) {
+    <p class="notice warning" role="status">{{ settings.title }} is not responding, so this is your last signed-in view. It refreshes when the server is back.</p>
   }
   @if (actions.length) {
   <section aria-labelledby="quick-actions-title">
@@ -76,6 +92,7 @@
     }
   </section>
   }
+  @if (services.length) {
   <section aria-labelledby="services-title" class="services-section">
     <h2 id="services-title">Services</h2>
     <div class="services">
@@ -91,6 +108,10 @@
       }
     </div>
   </section>
+  }
+  @if (settings.auth && !actions.length && !services.length && !hasOutlet && !showHostStatus) {
+    <p class="notice">Nothing has been shared with your account yet. Ask an administrator to choose what you can see.</p>
+  }
   <footer>Install from your browser menu. On iPhone or iPad, use Share → Add to Home Screen.</footer>
   <ng-template #confirmDialog>
     <h2 mat-dialog-title id="confirm-title">{{ confirmation()?.label }}?</h2>

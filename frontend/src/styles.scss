@@ -80,3 +80,35 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--primary); outli
 .state-heading strong[data-state="mixed"], .state-heading strong[data-state="asleep"] { color: light-dark(#805600, #f1cb77); }
 .state-summary p { margin: 8px 0 0; font-size: .8rem; line-height: 1.5; color: var(--secondary); }
 @media (max-width: 599px) { .device-controls { grid-template-columns: 1fr; } }
+
+// Accounts: sign-in, setup wizard and user management.
+.header-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.account-button.mat-mdc-button, .back-button.mat-mdc-button { border-radius: 12px; @include mat.button-overrides((text-label-text-color: var(--ink))); }
+.account-content, .menu-item { display: inline-flex; align-items: center; gap: 8px; }
+.account-content erebor-icon, .menu-item erebor-icon { width: 20px; height: 20px; }
+.auth-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; max-width: none; }
+.auth-card { width: min(420px, 100%); padding: 32px; border-radius: 28px; background: var(--paper); }
+.auth-card.wide { width: min(560px, 100%); }
+.auth-card h1 { font-size: 2rem; }
+.auth-card .intro { margin: 8px 0 24px; }
+.auth-mark { display: inline-grid; place-items: center; padding: 12px; margin-bottom: 16px; border-radius: 16px; background: var(--icon-bg); color: var(--primary); }
+.auth-form { display: flex; flex-direction: column; gap: 8px; }
+.auth-form .mat-mdc-form-field { width: 100%; }
+.auth-card .mat-stepper-vertical { background: transparent; margin: 0 -24px; }
+.auth-card .notice { margin: 0 0 16px; }
+.step-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.form-error { color: var(--error); margin: 4px 0; font-size: .875rem; }
+.hint { color: var(--secondary); font-size: .8rem; line-height: 1.5; }
+.hint.block { display: block; }
+.page-title { margin-top: 24px; }
+.user-list { display: flex; flex-direction: column; gap: 12px; }
+.user-card { display: flex; align-items: center; gap: 16px; padding: 16px 12px 16px 20px; border-radius: 20px; background: var(--paper); }
+.user-actions { display: flex; gap: 4px; }
+.user-actions .mat-mdc-button { min-width: 44px; @include mat.button-overrides((text-label-text-color: var(--primary))); }
+.user-actions .danger-text { @include mat.button-overrides((text-label-text-color: var(--error))); }
+.user-actions .mat-mdc-button:disabled { opacity: .35; }
+.you { color: var(--secondary); font-weight: 400; }
+.permission-group { display: flex; flex-direction: column; border: 1px solid color-mix(in srgb, var(--secondary) 30%, transparent); border-radius: 16px; padding: 8px 12px 4px; margin: 16px 0 0; }
+.permission-group legend { padding: 0 6px; font-weight: 600; }
+.permission-group:disabled { opacity: .55; }
+.group-tools { display: flex; gap: 4px; justify-content: flex-end; }

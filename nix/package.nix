@@ -1,4 +1,5 @@
-{ lib, buildNpmPackage, autoPatchelfHook, stdenv, settings ? { } }:
+# With auth, only branding is public; the control API serves each user's view.
+{ lib, buildNpmPackage, autoPatchelfHook, stdenv, settings ? { }, auth ? false }:
 
 buildNpmPackage {
   pname = "erebor-dashboard";
@@ -14,13 +15,17 @@ buildNpmPackage {
   postConfigure = ''
     autoPatchelf node_modules/sass-embedded-linux-${if stdenv.hostPlatform.isAarch64 then "arm64" else "x64"}/dart-sass/src/dart
   '';
-  dashboardSettings = builtins.toJSON ({
-    title = "Dashboard";
-    description = "Services and controls.";
-    domainSuffix = "";
-    actions = [ ];
-    services = [ ];
-  } // settings);
+  dashboardSettings = let
+    full = {
+      title = "Dashboard";
+      description = "Services and controls.";
+      domainSuffix = "";
+      actions = [ ];
+      services = [ ];
+    } // settings;
+  in builtins.toJSON (if auth
+    then { inherit (full) title description domainSuffix; auth = true; }
+    else full);
   passAsFile = [ "dashboardSettings" ];
   preBuild = ''
     cp "$dashboardSettingsPath" public/config.json

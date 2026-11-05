@@ -3,25 +3,14 @@ import json
 import unittest
 from unittest.mock import patch
 
-from fastapi.testclient import TestClient
-
 import control
-
-
-HEADERS = {"Host": "erebor.jzon.pl", "Origin": "https://erebor.jzon.pl",
-           "Content-Type": "application/json", "X-Erebor-Control": "1"}
+from fixtures import HEADERS, isolated_store, setup_admin
 
 
 class Requests(unittest.TestCase):
     def setUp(self):
-        hosts = patch.object(control, "HOSTS", {"localhost", "erebor.jzon.pl", "moria.jzon.pl"})
-        hosts.start()
-        self.addCleanup(hosts.stop)
-        enabled = patch.object(control, "ENABLED_ACTIONS", control.ACTIONS)
-        enabled.start()
-        self.addCleanup(enabled.stop)
-        self.client = TestClient(control.app)
-        self.addCleanup(self.client.close)
+        self.client = isolated_store(self)
+        setup_admin(self.client)
 
     def request(self, action="display-on", headers=None, method="POST", body=None, path="/api/control"):
         return self.client.request(method, path,

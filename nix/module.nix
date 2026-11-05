@@ -10,8 +10,11 @@ in
     enable = lib.mkEnableOption "the Erebor dashboard package";
     package = lib.mkOption {
       type = lib.types.package;
-      default = pkgs.callPackage ./package.nix { settings = cfg.settings; };
-      description = "Built static dashboard; serve this directory as the website root.";
+      default = pkgs.callPackage ./package.nix { settings = cfg.settings; auth = cfg.control.enable; };
+      description = ''
+        Built static dashboard; serve this directory as the website root. With the control API
+        enabled, sign-in is required and services/actions are served per user by the API.
+      '';
     };
     settings = lib.mkOption {
       type = settingsFormat.type;
@@ -63,12 +66,16 @@ in
       environment = {
         DASHBOARD_HOSTS = lib.concatStringsSep "," cfg.control.allowedHosts;
         DASHBOARD_ACTIONS = lib.concatStringsSep "," cfg.control.enabledActions;
+        DASHBOARD_SETTINGS = settingsFormat.generate "erebor-dashboard-settings.json" cfg.settings;
       } // lib.optionalAttrs (cfg.control.wledUrl != null) {
         DASHBOARD_WLED_URL = cfg.control.wledUrl;
       };
       path = [ pkgs.systemd pkgs.wlopm ] ++ cfg.control.extraPackages;
       serviceConfig = {
         ExecStart = lib.getExe cfg.control.package;
+        # Accounts and sessions: ~/.local/state/erebor-dashboard/users.sqlite3
+        StateDirectory = "erebor-dashboard";
+        StateDirectoryMode = "0700";
         Restart = "on-failure";
         NoNewPrivileges = true;
         PrivateTmp = true;

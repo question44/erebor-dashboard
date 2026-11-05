@@ -7,11 +7,12 @@ import platform
 import socket
 import subprocess
 import threading
+from pathlib import Path
 from typing import Annotated, Literal, get_args
 from urllib.parse import urlsplit
 from urllib.request import Request as URLRequest, urlopen
 
-from fastapi import FastAPI, Header, Request
+from fastapi import Cookie, Depends, FastAPI, Header, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
@@ -21,6 +22,8 @@ from starlette.exceptions import HTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 import uvicorn
 
+import auth
+
 
 HOSTS = set(os.environ.get("DASHBOARD_HOSTS", "localhost,127.0.0.1").split(","))
 ENABLED_ACTIONS = set(filter(None, os.environ.get("DASHBOARD_ACTIONS", "").split(",")))
@@ -28,6 +31,37 @@ ActionName = Literal["display-on", "display-off", "screen-dp", "screen-hdmi", "a
                      "sleep", "power-off", "reboot-windows"]
 ACTIONS = set(get_args(ActionName))
 AMBILIGHT_LOCK = threading.Lock()
+
+
+def load_settings():
+    path = os.environ.get("DASHBOARD_SETTINGS")
+    if not path:
+        return {}
+    with open(path) as stream:
+        return json.load(stream)
+
+
+def state_path():
+    base = (os.environ.get("DASHBOARD_STATE_DIR") or os.environ.get("STATE_DIRECTORY")
+            or Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "erebor-dashboard")
+    return Path(base) / "users.sqlite3"
+
+
+SETTINGS = load_settings()
+_STORE = None
+_STORE_LOCK = threading.Lock()
+
+
+def store():
+    global _STORE
+    with _STORE_LOCK:
+        if _STORE is None:
+            _STORE = auth.Store(state_path())
+        return _STORE
+
+
+def catalog():
+    return auth.Catalog(SETTINGS, ENABLED_ACTIONS)
 
 
 def wled_state(state):
@@ -270,17 +304,22 @@ class DashboardBoundary:
                 MutableHeaders(scope=message)["Cache-Control"] = "no-store"
             await send(message)
 
-        if scope["method"] == "POST":
+        if scope["method"] in {"POST", "PUT", "PATCH", "DELETE"}:
             headers = Headers(scope=scope)
             if not same_origin(headers):
                 await JSONResponse({"error": "Same-origin dashboard requests only"}, 403)(scope, receive, no_store)
                 return
-            if scope["path"] != "/api/control" or scope.get("query_string"):
+            if not scope["path"].startswith("/api/control") or scope.get("query_string"):
                 await JSONResponse({"error": "Unknown endpoint"}, 404)(scope, receive, no_store)
                 return
+            # Actions are tiny; account bodies carry permission lists.
+            limit = 256 if scope["path"] == "/api/control" else 4096
             try:
                 length = int(headers.get("content-length", "0"))
-                if not 0 < length <= 256 or len(headers.getlist("content-length")) != 1:
+                lengths = len(headers.getlist("content-length"))
+                if scope["method"] == "DELETE" and length == 0 and lengths <= 1:
+                    pass  # Deletions are addressed by path and carry no body.
+                elif not 0 < length <= limit or lengths != 1:
                     raise ValueError("Invalid request size")
             except ValueError:
                 await JSONResponse({"error": "Invalid action"}, 400)(scope, receive, no_store)
@@ -293,7 +332,7 @@ class DashboardBoundary:
                 message = await original_receive()
                 if message["type"] == "http.request":
                     received += len(message.get("body", b""))
-                    if received > 256 or (not message.get("more_body", False) and received != length):
+                    if received > limit or (not message.get("more_body", False) and received != length):
                         raise HTTPException(400, "Invalid action")
                 return message
 
@@ -309,22 +348,188 @@ app.add_middleware(DashboardBoundary)
 
 @app.exception_handler(RequestValidationError)
 async def invalid_command(request: Request, exc: RequestValidationError):
-    return JSONResponse({"error": "Invalid action"}, 400)
+    return JSONResponse({"error": "Invalid action" if request.url.path == "/api/control" else "Invalid request"}, 400)
 
 
 @app.exception_handler(HTTPException)
 async def http_error(request: Request, exc: HTTPException):
-    return JSONResponse({"error": "Invalid action" if exc.status_code == 400 else str(exc.detail)},
+    invalid = "Invalid action" if request.url.path == "/api/control" else "Invalid request"
+    return JSONResponse({"error": invalid if exc.status_code == 400 else str(exc.detail)},
                         exc.status_code, headers=exc.headers)
 
 
+class SessionUser(BaseModel):
+    username: str
+    admin: bool
+
+
+class SessionState(BaseModel):
+    setupRequired: bool
+    user: SessionUser | None = None
+
+
+class Credentials(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    username: str
+    password: str
+
+
+class PasswordChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    current: str
+    password: str
+
+
+class Permissions(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    modules: list[str] = []
+    services: list[str] = []
+    actions: list[str] = []
+
+
+class NewAccount(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    username: str
+    password: str
+    admin: bool = False
+    permissions: Permissions = Permissions()
+
+
+class AccountChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    password: str | None = None
+    admin: bool | None = None
+    permissions: Permissions | None = None
+
+
+def auth_failure(exc: auth.AuthError):
+    return JSONResponse({"error": str(exc)}, exc.status)
+
+
+def set_session_cookie(request: Request, response: Response, token: str):
+    # Caddy replaces X-Forwarded-Proto; the API itself only listens on loopback.
+    response.set_cookie(auth.SESSION_COOKIE, token, max_age=auth.SESSION_SECONDS, path="/api/control",
+                        httponly=True, samesite="strict",
+                        secure=request.headers.get("x-forwarded-proto") == "https")
+
+
+def signed_in(request: Request, response: Response,
+              token: Annotated[str | None, Cookie(alias=auth.SESSION_COOKIE)] = None):
+    user, renewed = store().session(token)
+    if not user:
+        raise HTTPException(401, "Sign in required")
+    if renewed:
+        set_session_cookie(request, response, token)
+    request.state.token = token
+    return user
+
+
+def administrator(user: Annotated[dict, Depends(signed_in)]):
+    if not user["admin"]:
+        raise HTTPException(403, "Administrator access required")
+    return user
+
+
+User = Annotated[dict, Depends(signed_in)]
+Admin = Annotated[dict, Depends(administrator)]
+
+
+@app.get("/api/control/auth/session", response_model=SessionState)
+def read_session(request: Request, response: Response,
+                 token: Annotated[str | None, Cookie(alias=auth.SESSION_COOKIE)] = None):
+    if store().setup_required():
+        return SessionState(setupRequired=True)
+    user, renewed = store().session(token)
+    if renewed:
+        set_session_cookie(request, response, token)
+    return SessionState(setupRequired=False, user=user and SessionUser(username=user["username"], admin=user["admin"]))
+
+
+@app.post("/api/control/auth/setup", response_model=SessionState)
+def first_run_setup(credentials: Credentials, request: Request, response: Response):
+    try:
+        token = store().setup(credentials.username, credentials.password)
+    except auth.AuthError as exc:
+        return auth_failure(exc)
+    set_session_cookie(request, response, token)
+    return SessionState(setupRequired=False, user=SessionUser(username=auth.normalize_username(credentials.username), admin=True))
+
+
+@app.post("/api/control/auth/login", response_model=SessionState)
+def sign_in(credentials: Credentials, request: Request, response: Response):
+    try:
+        token = store().login(credentials.username, credentials.password)
+    except auth.AuthError as exc:
+        return auth_failure(exc)
+    user, _ = store().session(token)
+    set_session_cookie(request, response, token)
+    return SessionState(setupRequired=False, user=SessionUser(username=user["username"], admin=user["admin"]))
+
+
+@app.post("/api/control/auth/logout", response_model=ControlResult)
+def sign_out(response: Response, token: Annotated[str | None, Cookie(alias=auth.SESSION_COOKIE)] = None):
+    store().logout(token)
+    response.delete_cookie(auth.SESSION_COOKIE, path="/api/control")
+    return ControlResult(message="Signed out")
+
+
+@app.post("/api/control/auth/password", response_model=ControlResult)
+def change_own_password(change: PasswordChange, user: User, request: Request):
+    try:
+        store().change_password(user["username"], change.current, change.password, request.state.token)
+    except auth.AuthError as exc:
+        return auth_failure(exc)
+    return ControlResult(message="Password changed")
+
+
+@app.get("/api/control/config")
+def read_config(user: User):
+    """Dashboard settings reduced to what this account may see."""
+    return {**catalog().view(user), "user": {"username": user["username"], "admin": user["admin"]}}
+
+
+@app.get("/api/control/users")
+def list_users(admin: Admin):
+    return {"catalog": catalog().describe(), "users": store().users()}
+
+
+@app.post("/api/control/users", response_model=ControlResult)
+def create_user(account: NewAccount, admin: Admin):
+    try:
+        store().create(account.username, account.password, account.admin,
+                       catalog().clean(account.permissions.model_dump()))
+    except auth.AuthError as exc:
+        return auth_failure(exc)
+    return ControlResult(message="User created")
+
+
+@app.put("/api/control/users/{username}", response_model=ControlResult)
+def update_user(username: str, change: AccountChange, admin: Admin, request: Request):
+    try:
+        store().update(admin["username"], username, password=change.password, admin=change.admin,
+                       permissions=None if change.permissions is None else catalog().clean(change.permissions.model_dump()),
+                       keep_token=request.state.token if username == admin["username"] else None)
+    except auth.AuthError as exc:
+        return auth_failure(exc)
+    return ControlResult(message="User updated")
+
+
+@app.delete("/api/control/users/{username}", response_model=ControlResult)
+def delete_user(username: str, admin: Admin):
+    try:
+        store().delete(admin["username"], username)
+    except auth.AuthError as exc:
+        return auth_failure(exc)
+    return ControlResult(message="User deleted")
+
+
 @app.get("/api/control/status", response_model=ControlStatus)
-def read_control_status():
+def read_control_status(user: User):
     return ControlStatus(display=display_status(), screen=screen_status(), ambilight=ambilight_status())
 
 
 @app.get("/api/control/os", response_model=HostOS)
-def read_host_os():
+def read_host_os(user: User):
     try:
         nixos = platform.freedesktop_os_release().get("ID") == "nixos"
     except OSError:
@@ -333,12 +538,15 @@ def read_host_os():
 
 
 @app.post("/api/control", response_model=ControlResult,
-          responses={code: {"model": ControlError} for code in [400, 403, 503]})
+          responses={code: {"model": ControlError} for code in [400, 401, 403, 503]})
 def execute_control(command: ControlCommand,
-                    x_erebor_control: Annotated[Literal["1"], Header(alias="X-Erebor-Control")]):
+                    x_erebor_control: Annotated[Literal["1"], Header(alias="X-Erebor-Control")],
+                    user: User):
     # FastAPI runs this synchronous handler in its thread pool.
     if command.action not in ENABLED_ACTIONS:
         return JSONResponse({"error": "Action is disabled"}, 403)
+    if command.action not in catalog().view(user)["actions"]:
+        return JSONResponse({"error": "Your account cannot use this action"}, 403)
     try:
         action(command.action)
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:

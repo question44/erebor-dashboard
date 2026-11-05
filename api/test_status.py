@@ -3,9 +3,9 @@ import subprocess
 import unittest
 from unittest.mock import patch
 
-from fastapi.testclient import TestClient
 
 import control
+from fixtures import isolated_store, setup_admin
 
 
 class DisplayStatus(unittest.TestCase):
@@ -126,20 +126,28 @@ class ScreenStatus(unittest.TestCase):
 
 
 class StatusEndpoint(unittest.TestCase):
+    def setUp(self):
+        self.client = isolated_store(self)
+        setup_admin(self.client)
+
+    def test_requires_sign_in(self):
+        self.client.cookies.clear()
+        for path in ["/api/control/os", "/api/control/status"]:
+            self.assertEqual(self.client.get(path).status_code, 401)
+
     @patch.object(control, "action")
     @patch.object(control, "display_status")
     @patch.object(control, "ambilight_status")
     @patch.object(control.platform, "freedesktop_os_release")
     def test_fast_os_identity_is_uncached_read_only_and_checks_distro(self, release, ambilight, display, action):
-        with TestClient(control.app) as client:
-            for distro, expected in [('nixos', 'nixos'), ('fedora', 'unknown'), ('', 'unknown')]:
-                release.return_value = {'ID': distro}
-                response = client.get('/api/control/os')
-                self.assertEqual(response.status_code, 200)
-                self.assertEqual(response.headers['cache-control'], 'no-store')
-                self.assertEqual(response.json(), {'state': expected})
-            release.side_effect = OSError('unavailable')
-            self.assertEqual(client.get('/api/control/os').json(), {'state': 'unknown'})
+        for distro, expected in [('nixos', 'nixos'), ('fedora', 'unknown'), ('', 'unknown')]:
+            release.return_value = {'ID': distro}
+            response = self.client.get('/api/control/os')
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.headers['cache-control'], 'no-store')
+            self.assertEqual(response.json(), {'state': expected})
+        release.side_effect = OSError('unavailable')
+        self.assertEqual(self.client.get('/api/control/os').json(), {'state': 'unknown'})
         action.assert_not_called()
         display.assert_not_called()
         ambilight.assert_not_called()
@@ -148,8 +156,7 @@ class StatusEndpoint(unittest.TestCase):
     @patch.object(control, "display_status", return_value=control.DeviceStatus(state="off", detail="Displays off"))
     @patch.object(control, "ambilight_status", return_value=control.DeviceStatus(state="unknown", detail="Unavailable"))
     def test_get_is_read_only_uncached_and_preserves_partial_results(self, ambilight, display, action):
-        with TestClient(control.app) as client:
-            response = client.get("/api/control/status")
+        response = self.client.get("/api/control/status")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers["cache-control"], "no-store")
         self.assertEqual(response.json()["display"]["state"], "off")

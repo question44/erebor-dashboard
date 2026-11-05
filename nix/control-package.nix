@@ -17,7 +17,7 @@ stdenvNoCC.mkDerivation {
   '';
   installPhase = ''
     runHook preInstall
-    install -Dm644 control.py "$out/lib/erebor-dashboard/control.py"
+    install -Dm644 -t "$out/lib/erebor-dashboard" control.py auth.py
     makeWrapper ${python}/bin/python3 "$out/bin/erebor-dashboard-control" \
       --add-flags "$out/lib/erebor-dashboard/control.py"
     runHook postInstall
