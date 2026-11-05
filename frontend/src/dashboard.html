@@ -69,17 +69,17 @@
   }
   @if (actions.length) {
   <section aria-labelledby="quick-actions-title">
-    <div class="section-heading">
+    <div class="section-heading" [class.foldable]="!editing() && (canFold('cards') || isFolded('cards'))" (click)="headingClick('cards')">
       <h2 id="quick-actions-title">Quick actions</h2>
       @if (!editing() && (canFold('cards') || isFolded('cards'))) {
-        <button mat-icon-button type="button" class="fold-toggle" [class.folded]="isFolded('cards')" (click)="toggleFold('cards')"
+        <button mat-icon-button type="button" class="fold-toggle" [class.folded]="isFolded('cards')" (click)="$event.stopPropagation(); toggleFold('cards')"
           [attr.aria-expanded]="!isFolded('cards')" [attr.aria-label]="(isFolded('cards') ? 'Expand ' : 'Fold ') + 'Quick actions'"
           [title]="isFolded('cards') ? 'Show all' : 'Fold to ' + foldRows('cards') + (foldRows('cards') === 1 ? ' row' : ' rows')">
           <erebor-icon name="chevron" />
         </button>
       }
     </div>
-    <div class="fold-clip" [class.clipped]="clipHeight('cards') !== null" [style.max-height.px]="clipHeight('cards')">
+    <div class="fold-clip" [class.clipped]="maxHeight('cards') !== null" [style.max-height.px]="maxHeight('cards')">
     <div class="device-controls" #cardsGrid cdkDropList cdkDropListOrientation="mixed" data-list="cards" (cdkDropListDropped)="drop('cards', $event)">
       @for (id of visibleCards(); track id; let i = $index) {
         @let kind = cardKind(id);
@@ -220,17 +220,17 @@
   }
   @if (services.length && (editing() || hasVisibleService())) {
   <section aria-labelledby="services-title" class="services-section">
-    <div class="section-heading">
+    <div class="section-heading" [class.foldable]="!editing() && (canFold('services') || isFolded('services'))" (click)="headingClick('services')">
       <h2 id="services-title">Services</h2>
       @if (!editing() && (canFold('services') || isFolded('services'))) {
-        <button mat-icon-button type="button" class="fold-toggle" [class.folded]="isFolded('services')" (click)="toggleFold('services')"
+        <button mat-icon-button type="button" class="fold-toggle" [class.folded]="isFolded('services')" (click)="$event.stopPropagation(); toggleFold('services')"
           [attr.aria-expanded]="!isFolded('services')" [attr.aria-label]="(isFolded('services') ? 'Expand ' : 'Fold ') + 'Services'"
           [title]="isFolded('services') ? 'Show all' : 'Fold to ' + foldRows('services') + (foldRows('services') === 1 ? ' row' : ' rows')">
           <erebor-icon name="chevron" />
         </button>
       }
     </div>
-    <div class="fold-clip" [class.clipped]="clipHeight('services') !== null" [style.max-height.px]="clipHeight('services')">
+    <div class="fold-clip" [class.clipped]="maxHeight('services') !== null" [style.max-height.px]="maxHeight('services')">
     <div class="services" #servicesGrid cdkDropList cdkDropListOrientation="mixed" data-list="services" (cdkDropListDropped)="drop('services', $event)">
       @for (id of visibleServices(); track id; let i = $index) {
         @if (isSpacer(id)) {
@@ -253,7 +253,7 @@
         <div class="service-item" cdkDrag [cdkDragDisabled]="!editing() || !canArrange()" [cdkDragStartDelay]="dragDelay" [class.is-hidden]="isHidden('services', service.id)">
         <a mat-button class="service" [class.unavailable]="!hostAvailable()" [id]="service.id"
           [disabled]="!hostAvailable()" [attr.href]="hostAvailable() && !editing() ? service.url : null"
-          [attr.inert]="editing() ? '' : null">
+          [attr.inert]="editing() ? '' : null" (click)="openService(service, $event)">
           <span class="service-content">
             <span class="service-icon"><erebor-icon [name]="service.icon" /></span>
             <span class="service-text"><span class="service-title">{{ service.label }}</span><span class="description">{{ service.description }}</span></span>
@@ -301,6 +301,26 @@
   }
   @if (!installed()) {
   <footer>Install from your browser menu. On iPhone or iPad, use Share → Add to Home Screen.</footer>
+  }
+  @if (embedded(); as win) {
+    <div class="embed-layer">
+      <section class="embed-window" cdkDrag [cdkDragDisabled]="embedMaximized()" cdkDragBoundary=".embed-layer"
+        [class.maximized]="embedMaximized()" [class.interacting]="embedInteracting()" role="dialog" [attr.aria-label]="win.label"
+        (cdkDragStarted)="embedInteracting.set(true)" (cdkDragEnded)="embedInteracting.set(false)" (pointerdown)="embedPointerDown($event)">
+        <header class="embed-titlebar" cdkDragHandle (dblclick)="embedMaximized.set(!embedMaximized())">
+          <erebor-icon name="system" />
+          <span class="embed-title">{{ win.label }}</span>
+          <a class="embed-tool" [href]="win.url" target="_blank" rel="noopener" title="Open in new tab" aria-label="Open in new tab"
+            (click)="closeEmbed()"><erebor-icon name="external" /></a>
+          <button type="button" class="embed-tool embed-maximize" (click)="embedMaximized.set(!embedMaximized())"
+            [attr.aria-label]="embedMaximized() ? 'Restore window' : 'Maximize window'" [title]="embedMaximized() ? 'Restore' : 'Maximize'">
+            <erebor-icon [name]="embedMaximized() ? 'restore' : 'maximize'" />
+          </button>
+          <button type="button" class="embed-tool" (click)="closeEmbed()" aria-label="Close window" title="Close"><erebor-icon name="close" /></button>
+        </header>
+        <iframe [src]="win.src" [title]="win.label" allow="clipboard-read; clipboard-write"></iframe>
+      </section>
+    </div>
   }
   <ng-template #confirmDialog>
     <h2 mat-dialog-title id="confirm-title">{{ confirmation()?.label }}?</h2>

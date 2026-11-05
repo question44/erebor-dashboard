@@ -2,6 +2,8 @@ export interface Action { id: string; label: string; icon: string; off?: boolean
 export interface Service {
   id: string; label: string; description: string; icon: string;
   url?: string; subdomain?: string; port?: number; scheme?: string;
+  /** Dashboard hostnames on which this HTTPS service opens in an in-page window instead of a new tab. */
+  embedOn?: string[];
 }
 export interface Account { username: string; admin: boolean; }
 /** Per-account arrangement of quick-action cards and services; IDs not listed keep the default order. */
@@ -65,6 +67,9 @@ export const paths: Record<string, string> = {
   check: 'M5 12.5l4.5 4.5L19 7',
   chevron: 'M6 9l6 6 6-6',
   'fold-grip': 'M8 5l4-3 4 3 M8 19l4 3 4-3 M4 12h16',
+  maximize: 'M4 4h16v16H4z',
+  restore: 'M8 4h12v12 M4 8h12v12H4z',
+  external: 'M14 4h6v6 M20 4l-9 9 M18 14v6H4V6h6',
   gauge: 'M12 14l4-4 M3.3 19a10 10 0 1 1 17.4 0',
 };
 

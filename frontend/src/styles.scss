@@ -1,6 +1,8 @@
 @use '@angular/material' as mat;
 html {
   color-scheme: light dark;
+  --spring: cubic-bezier(.2, .9, .3, 1.1);
+  --spring: linear(0, 0.06 2%, 0.25 6%, 0.55 12%, 0.83 19%, 1 25%, 1.05 31%, 1.06 36%, 1.04 44%, 1.01 55%, 0.995 66%, 1);
   @include mat.theme((color: mat.$violet-palette, typography: (plain-family: 'system-ui, -apple-system, "Segoe UI", sans-serif', brand-family: 'system-ui, -apple-system, "Segoe UI", sans-serif'), density: 0));
   --page: #fdf8ff; --paper: #f3edf7; --primary: #6750a4; --secondary: #625b71; --ink: #1d1b20; --icon-bg: #e8def8; --error: #ba1a1a;
   background: var(--page); color: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -198,18 +200,49 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--primary); outli
 // Folding: a section can collapse to its first N rows; N is set by dragging the fold line in edit mode.
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 16px; }
 .section-heading h2 { margin: 0; }
-.fold-toggle.mat-mdc-icon-button { color: var(--secondary); transition: transform .2s; }
+.fold-toggle.mat-mdc-icon-button { color: var(--secondary); transition: transform .45s var(--spring); }
 .fold-toggle:not(.folded) { transform: rotate(180deg); }
 .fold-toggle erebor-icon { width: 22px; height: 22px; }
-.fold-clip { position: relative; transition: max-height .3s cubic-bezier(.2, 0, 0, 1); }
-.fold-clip.clipped { overflow: hidden; }
+.fold-clip { position: relative; transition: max-height .55s var(--spring); }
+// clip (not hidden) so focus rings and shadows near the edge still show.
+.fold-clip.clipped { overflow: hidden; overflow: clip; overflow-clip-margin: 6px; }
+.section-heading.foldable { cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; }
+.section-heading.foldable:hover h2 { color: var(--primary); }
+@keyframes pop-in { from { opacity: 0; scale: .8; translate: 0 -6px; } }
 .device-controls, .services { position: relative; }
 .fold-clip > .device-controls { margin-bottom: 0; }
 .fold-clip + * { margin-top: 12px; }
-.fold-more { display: flex; align-items: center; gap: 6px; margin: 10px auto 16px; padding: 6px 16px; border: 0; border-radius: 999px; background: var(--paper); color: var(--secondary); font: inherit; font-size: .8rem; font-weight: 600; cursor: pointer; }
+.fold-more { animation: pop-in .45s var(--spring); display: flex; align-items: center; gap: 6px; margin: 10px auto 16px; padding: 6px 16px; border: 0; border-radius: 999px; background: var(--paper); color: var(--secondary); font: inherit; font-size: .8rem; font-weight: 600; cursor: pointer; }
 .fold-more erebor-icon { width: 16px; height: 16px; }
 .fold-line { position: absolute; left: -8px; right: -8px; height: 0; border-top: 2px dashed var(--primary); z-index: 5; pointer-events: none; transform: translateY(-1px); }
 .fold-line:not(.dragging) { transition: top .2s cubic-bezier(.2, 0, 0, 1); }
 .fold-grip { position: absolute; left: 50%; top: 0; transform: translate(-50%, -50%); display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border: 0; border-radius: 999px; background: var(--primary); color: var(--page); font: inherit; font-size: .8rem; font-weight: 600; white-space: nowrap; cursor: ns-resize; touch-action: none; pointer-events: auto; box-shadow: 0 2px 8px rgb(0 0 0 / .2); }
 .fold-grip erebor-icon { width: 16px; height: 16px; }
 .fold-line.dragging .fold-grip { cursor: grabbing; scale: 1.05; }
+
+// Floating in-page window for embedded services (the browser terminal).
+.embed-layer { position: fixed; inset: 0; z-index: 1000; pointer-events: none; }
+.embed-window { position: absolute; top: 72px; left: max(16px, calc(50vw - 420px)); width: min(840px, calc(100vw - 32px)); height: min(540px, calc(100vh - 104px));
+  min-width: 320px; min-height: 200px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px);
+  display: flex; flex-direction: column; overflow: hidden; resize: both; pointer-events: auto;
+  border-radius: 16px; background: #000; box-shadow: 0 18px 48px rgb(0 0 0 / .35), 0 0 0 1px color-mix(in srgb, var(--secondary) 30%, transparent); }
+.embed-window.maximized { inset: 8px !important; width: auto; height: auto; max-width: none; max-height: none; resize: none; transform: none !important; }
+.embed-titlebar { display: flex; align-items: center; gap: 8px; height: 40px; flex-shrink: 0; padding: 0 6px 0 14px;
+  background: var(--paper); color: var(--ink); cursor: grab; user-select: none; touch-action: none; }
+.embed-window.maximized .embed-titlebar { cursor: default; }
+.embed-titlebar > erebor-icon { width: 18px; height: 18px; color: var(--primary); }
+.embed-title { flex: 1; min-width: 0; font-size: .875rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.embed-tool { display: grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: 8px; background: none; color: var(--secondary); cursor: pointer; }
+.embed-tool:hover { background: var(--icon-bg); color: var(--ink); }
+.embed-tool erebor-icon { width: 18px; height: 18px; }
+.embed-window iframe { flex: 1; width: 100%; border: 0; background: #000; }
+.embed-window.interacting iframe { pointer-events: none; }
+@media (max-width: 599px) {
+  .embed-window { inset: 0 !important; width: auto; height: auto; max-width: none; max-height: none; border-radius: 0; resize: none; transform: none !important; }
+  .embed-maximize { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fold-clip, .fold-toggle.mat-mdc-icon-button { transition: none; }
+  .fold-more { animation: none; }
+}

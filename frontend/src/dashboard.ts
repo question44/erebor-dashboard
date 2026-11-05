@@ -1,5 +1,6 @@
 import { Component, DestroyRef, ElementRef, HostListener, TemplateRef, ViewChild, computed, effect, inject, signal } from '@angular/core';
-import { CdkDrag, CdkDragDrop, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
+import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { A11yModule } from '@angular/cdk/a11y';
 import { MatButtonModule } from '@angular/material/button';
@@ -32,6 +33,11 @@ const LOCAL_LAYOUT_KEY = 'erebor-dashboard-layout';
 const arrange = (ids: string[], saved: string[]) => [...new Set([...saved.filter(id => ids.includes(id) || isSpacer(id)), ...ids])];
 // Empty one-unit cells a user places to leave gaps; stored in the order lists like any item.
 const SPACER = 'spacer-';
+// Spring-like easing with a small overshoot that settles into place (falls back to cubic-bezier where linear() is unsupported).
+const SPRING = CSS.supports('transition-timing-function', 'linear(0, 1)')
+  ? 'linear(0, 0.06 2%, 0.25 6%, 0.55 12%, 0.83 19%, 1 25%, 1.05 31%, 1.06 36%, 1.04 44%, 1.01 55%, 0.995 66%, 1)'
+  : 'cubic-bezier(.2, .9, .3, 1.1)';
+const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 const MAX_SPACERS = 16;
 export const isSpacer = (id: string) => id.startsWith(SPACER);
 
@@ -42,7 +48,7 @@ function readLocalLayout(): Layout {
 @Component({
   selector: 'erebor-dashboard',
   imports: [Icon, A11yModule, MatButtonModule, MatDialogModule, MatChipsModule, MatMenuModule, MatSlideToggleModule,
-    CdkDropList, CdkDrag],
+    CdkDropList, CdkDrag, CdkDragHandle],
   templateUrl: './dashboard.html',
 })
 export class Dashboard {
@@ -81,12 +87,24 @@ export class Dashboard {
   readonly editing = signal(false);
   // Touch needs a short hold so a quick swipe still scrolls the page.
   readonly dragDelay = { touch: 180, mouse: 0 };
+  /** Service shown in the floating in-page window (e.g. the browser terminal). */
+  readonly embedded = signal<{ id: string; label: string; url: string; src: SafeResourceUrl } | null>(null);
+  readonly embedMaximized = signal(false);
+  /** True while the window is moved or resized, so the iframe does not swallow pointer events. */
+  readonly embedInteracting = signal(false);
+  private readonly sanitizer = inject(DomSanitizer);
   /** Bottom edge (px from the grid top) of each rendered row, measured from the DOM. */
   readonly rowBottoms = { cards: signal<number[]>([]), services: signal<number[]>([]) };
   /** Pointer position of the fold line while it is being dragged in edit mode. */
   readonly foldDrag = signal<{ list: Section; y: number } | null>(null);
   private readonly grids: Partial<Record<Section, HTMLElement>> = {};
   private readonly observers: Partial<Record<Section, { resize: ResizeObserver; mutation: MutationObserver }>> = {};
+  /** Last laid-out position of each grid item, for animating moves (FLIP). */
+  private readonly positions: Record<Section, Map<Element, [number, number]>> = { cards: new Map(), services: new Map() };
+  private readonly flips = new WeakMap<Element, Animation>();
+  private readonly wasInert = new WeakMap<Element, boolean>();
+  /** CDK puts the DOM back before Angular re-renders a drop; neither step should animate. */
+  private skipFlip = false;
   @ViewChild('cardsGrid') set cardsGrid(ref: ElementRef<HTMLElement> | undefined) { this.observeGrid('cards', ref?.nativeElement); }
   @ViewChild('servicesGrid') set servicesGrid(ref: ElementRef<HTMLElement> | undefined) { this.observeGrid('services', ref?.nativeElement); }
   /** Whether Moonshine has a Moonlight client waiting for a PIN; null when unknown. */
@@ -137,8 +155,16 @@ export class Dashboard {
         const grid = this.grids[list], cut = this.clipHeight(list);
         this.rowBottoms[list]();
         if (!grid) continue;
-        for (const child of Array.from(grid.children) as HTMLElement[])
-          child.toggleAttribute('inert', cut !== null && child.offsetTop >= cut);
+        let revealed = 0;
+        for (const child of Array.from(grid.children) as HTMLElement[]) {
+          const inert = cut !== null && child.offsetTop >= cut;
+          // Rows uncovered by unfolding slide in one after another.
+          if (this.wasInert.get(child) && !inert && !reducedMotion())
+            child.animate([{ opacity: 0, translate: '0 -14px', scale: '.97' }, { opacity: 1, translate: '0 0', scale: '1' }],
+              { duration: 480, easing: SPRING, delay: Math.min(240, 40 * revealed++), fill: 'backwards' });
+          this.wasInert.set(child, inert);
+          child.toggleAttribute('inert', inert);
+        }
       }
     });
     inject(DestroyRef).onDestroy(() => {
@@ -509,12 +535,47 @@ export class Dashboard {
     delete this.observers[list];
     this.grids[list] = grid;
     if (!grid) { this.rowBottoms[list].set([]); return; }
-    const measure = () => this.measureRows(list);
-    const resize = new ResizeObserver(measure), mutation = new MutationObserver(measure);
+    const resize = new ResizeObserver(() => { this.snapshot(list); this.measureRows(list); });
+    const mutation = new MutationObserver(() => { this.flip(list); this.measureRows(list); });
     resize.observe(grid);
     mutation.observe(grid, { childList: true });
     this.observers[list] = { resize, mutation };
-    measure();
+    this.snapshot(list);
+    this.measureRows(list);
+  }
+
+  private snapshot(list: Section) {
+    const grid = this.grids[list];
+    this.positions[list] = new Map((Array.from(grid?.children ?? []) as HTMLElement[])
+      .map(child => [child, [child.offsetLeft, child.offsetTop]]));
+  }
+
+  /** Animate items whose grid position changed from where they were to where they are now. */
+  private flip(list: Section) {
+    const before = this.positions[list];
+    this.snapshot(list);
+    if (this.skipFlip || reducedMotion()) return;
+    const dragging = !!this.grids[list]?.classList.contains('cdk-drop-list-dragging');
+    for (const [element, [x, y]] of this.positions[list]) {
+      const old = before.get(element);
+      if (!old) continue;
+      // Start from where the item is drawn now, including any move still in progress.
+      const [tx, ty] = (getComputedStyle(element).translate.match(/-?[\d.]+/g) ?? ['0', '0']).map(Number);
+      const dx = old[0] - x + (tx || 0), dy = old[1] - y + (ty || 0);
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+      this.flips.get(element)?.cancel();
+      // Shorter while dragging: a sliding item ignores the pointer until it settles.
+      const animation = element.animate([{ translate: `${dx}px ${dy}px` }, { translate: '0 0' }],
+        { duration: dragging ? 250 : 420, easing: SPRING });
+      this.flips.set(element, animation);
+      // CDK hit-tests with elementFromPoint: while dragging, a sliding item must not count as
+      // "under the pointer" or it would be swapped straight back.
+      if (dragging) {
+        (element as HTMLElement).style.pointerEvents = 'none';
+        const settle = () => { if (this.flips.get(element) === animation) (element as HTMLElement).style.pointerEvents = ''; };
+        animation.onfinish = animation.oncancel = settle;
+      }
+    }
   }
 
   private measureRows(list: Section) {
@@ -545,6 +606,16 @@ export class Dashboard {
     if (this.editing() || !this.isFolded(list) || !this.canFold(list)) return null;
     return this.rowBottoms[list]()[this.foldRows(list) - 1];
   }
+
+  /** Height the section animates to: the fold, or its full height; null (unclipped) while editing. */
+  maxHeight(list: Section): number | null {
+    const bottoms = this.rowBottoms[list]();
+    if (this.editing() || !bottoms.length) return null;
+    return this.clipHeight(list) ?? bottoms[bottoms.length - 1];
+  }
+
+  /** Clicking anywhere on a section's heading row folds or unfolds it. */
+  headingClick(list: Section) { if (!this.editing() && (this.canFold(list) || this.isFolded(list))) this.toggleFold(list); }
 
   hiddenRows(list: Section) { return this.rowBottoms[list]().length - this.foldRows(list); }
 
@@ -616,6 +687,31 @@ export class Dashboard {
     this.saveLayout({ ...this.layout(), foldRows: { ...this.layout().foldRows, [list]: rows } });
   }
 
+  /** Only configured HTTPS services, and only on the dashboard hosts they list. */
+  canEmbed(service: { url?: string; embedOn?: string[] }) {
+    return !!service.url?.startsWith('https://') && !!service.embedOn?.includes(location.hostname);
+  }
+
+  openService(service: { id: string; label: string; url?: string; embedOn?: string[] }, event: MouseEvent) {
+    // Modified or middle clicks keep their usual new-tab/window behaviour.
+    if (!this.canEmbed(service) || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    if (this.embedded()?.id !== service.id) {
+      this.embedded.set({ id: service.id, label: service.label, url: service.url!,
+        src: this.sanitizer.bypassSecurityTrustResourceUrl(service.url!) });
+    }
+    window.setTimeout(() => document.querySelector<HTMLIFrameElement>('.embed-window iframe')?.focus());
+  }
+
+  closeEmbed() { this.embedded.set(null); this.embedMaximized.set(false); }
+
+  /** Pointer down on the window frame (its resize corner) rather than the iframe content. */
+  embedPointerDown(event: PointerEvent) {
+    if (event.target !== event.currentTarget) return;
+    this.embedInteracting.set(true);
+    window.addEventListener('pointerup', () => this.embedInteracting.set(false), { once: true });
+  }
+
   cardKind(id: string) {
     return isSpacer(id) ? 'spacer' : id === 'moonshine-pair' ? 'pair' : this.actionById[id] ? 'action' : 'device';
   }
@@ -653,7 +749,12 @@ export class Dashboard {
 
   resetLayout() { this.saveLayout(emptyLayout()); }
 
-  drop(list: Arrangeable, event: CdkDragDrop<unknown>) { this.move(list, event.previousIndex, event.currentIndex); }
+  drop(list: Arrangeable, event: CdkDragDrop<unknown>) {
+    // Items already slid into place while dragging; don't replay the DOM reset and re-render.
+    this.skipFlip = true;
+    requestAnimationFrame(() => requestAnimationFrame(() => { this.skipFlip = false; this.snapshot(list); }));
+    this.move(list, event.previousIndex, event.currentIndex);
+  }
 
   /** Keyboard alternative to dragging: arrow keys on the handle move the item. */
   nudge(list: Arrangeable, index: number, event: KeyboardEvent) {

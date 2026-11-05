@@ -76,7 +76,13 @@ and "Add spacer" inserts an empty 1-unit cell (also available among services).
 Each section can be folded with the chevron in its heading to show only its first
 N rows ("Show all" expands it). In edit mode a dashed fold line with a grip sets N:
 drag it between rows (or use up/down arrows on the grip). Fold state and N are
-stored per account. A **Show hidden**
+stored per account. Clicking a section's heading row also folds/unfolds it; folding,
+unfolding and reordering animate with a spring (disabled for reduced motion).
+
+A service with `embedOn: ["dashboard.example.org"]` and an HTTPS `url` opens in
+a draggable, resizable in-page window (full screen on phones) when the dashboard
+is opened on one of those hostnames; elsewhere it stays a normal link. The
+service must allow framing, e.g. `frame-ancestors https://dashboard.example.org`. A **Show hidden**
 toggle reveals hidden items again. The arrangement is stored per account in the
 API's SQLite database (`PUT /api/control/layout`); without accounts it is kept
 in the browser. The sign-in screen lists accounts recently used on that device.
