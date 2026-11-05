@@ -38,6 +38,9 @@ const SPRING = CSS.supports('transition-timing-function', 'linear(0, 1)')
   ? 'linear(0, 0.06 2%, 0.25 6%, 0.55 12%, 0.83 19%, 1 25%, 1.05 31%, 1.06 36%, 1.04 44%, 1.01 55%, 0.995 66%, 1)'
   : 'cubic-bezier(.2, .9, .3, 1.1)';
 const MAX_WINDOWS = 8;
+// Per-device choice between separate windows and one tabbed window.
+const WINDOW_MODE_KEY = 'erebor-dashboard-window-mode';
+const readTabbed = () => { try { return localStorage.getItem(WINDOW_MODE_KEY) === 'tabs'; } catch { return false; } };
 interface EmbeddableService { id: string; label: string; url?: string; embedOn?: string[]; }
 interface EmbedWindow {
   key: number; number: number; label: string; service: EmbeddableService; src: SafeResourceUrl;
@@ -98,6 +101,28 @@ export class Dashboard {
   readonly windows = signal<EmbedWindow[]>([]);
   private windowSeq = 0;
   private zSeq = 0;
+  /**
+   * Tab mode: one frame with a tab strip. The terminals' own elements never move in the DOM
+   * (moving an iframe reloads it and would end its shell); they are laid over the frame's content area.
+   */
+  readonly tabbed = signal(readTabbed());
+  readonly activeTab = signal<number | null>(null);
+  readonly tabsMinimized = signal(false);
+  readonly tabsMaximized = signal(false);
+  readonly tabZ = signal(1);
+  readonly tabRect = signal<{ top: number; left: number; width: number; height: number } | null>(null);
+  private tabFrameElement?: HTMLElement;
+  private tabFrameObserver?: ResizeObserver;
+  @ViewChild('tabFrame') set tabFrame(ref: ElementRef<HTMLElement> | undefined) {
+    if (this.tabFrameElement === ref?.nativeElement) return;
+    this.tabFrameObserver?.disconnect();
+    this.tabFrameElement = ref?.nativeElement;
+    if (this.tabFrameElement) {
+      this.tabFrameObserver = new ResizeObserver(() => this.syncTabRect());
+      this.tabFrameObserver.observe(this.tabFrameElement);
+      this.syncTabRect();
+    }
+  }
   /** True while the window is moved or resized, so the iframe does not swallow pointer events. */
   readonly embedInteracting = signal(false);
   private readonly sanitizer = inject(DomSanitizer);
@@ -723,7 +748,62 @@ export class Dashboard {
     this.windows.update(list => [...list, { key, number, service, z: ++this.zSeq, maximized: false, minimized: false, offset,
       label: number === 1 ? service.label : `${service.label} ${number}`,
       src: this.sanitizer.bypassSecurityTrustResourceUrl(service.url!) }]);
+    if (this.tabbed()) { this.activeTab.set(key); this.tabsMinimized.set(false); }
     window.setTimeout(() => this.focusFrame(key));
+  }
+
+  /** Merge every window into tabs, or split the tabs back into separate windows. */
+  setTabbed(tabbed: boolean) {
+    const open = this.windows();
+    if (tabbed) {
+      this.activeTab.set(this.topWindow() ?? open[open.length - 1]?.key ?? null);
+      this.windows.update(list => list.map(w => ({ ...w, minimized: false })));
+      this.tabsMinimized.set(false);
+      this.tabZ.set(++this.zSeq);
+    } else if (this.activeTab() !== null) {
+      // The tab that was showing comes out in front.
+      this.updateWindow(this.activeTab()!, { z: ++this.zSeq });
+    }
+    this.tabbed.set(tabbed);
+    try { localStorage.setItem(WINDOW_MODE_KEY, tabbed ? 'tabs' : 'windows'); } catch { /* Per-session only. */ }
+    const key = this.tabbed() ? this.activeTab() : this.topWindow();
+    if (key !== null) window.setTimeout(() => this.focusFrame(key));
+  }
+
+  selectTab(key: number) {
+    this.activeTab.set(key);
+    this.tabZ.set(++this.zSeq);
+    window.setTimeout(() => this.focusFrame(key));
+  }
+
+  /** Arrow keys move between tabs, as in a standard tab strip. */
+  tabKeydown(event: KeyboardEvent) {
+    const keys = this.windows().map(w => w.key), index = keys.indexOf(this.activeTab() ?? -1);
+    const step = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
+    if (!step || index < 0) return;
+    event.preventDefault();
+    const next = keys[(index + step + keys.length) % keys.length];
+    this.activeTab.set(next);
+    window.setTimeout(() => document.querySelector<HTMLElement>(`.tab[data-key="${next}"]`)?.focus());
+  }
+
+  /** Lay the terminals over the tab frame's content area (viewport coordinates; the layer is fixed at 0,0). */
+  syncTabRect() {
+    const content = this.tabFrameElement?.querySelector<HTMLElement>('.tab-content');
+    if (!content) { this.tabRect.set(null); return; }
+    const { top, left, width, height } = content.getBoundingClientRect();
+    this.tabRect.set({ top, left, width, height });
+  }
+
+  @HostListener('window:resize')
+  viewportResized() { if (this.tabbed()) this.syncTabRect(); }
+
+  tabFramePointerDown(event: PointerEvent) {
+    this.tabZ.set(++this.zSeq);
+    const target = event.target as HTMLElement;
+    if (target !== event.currentTarget && !target.classList.contains('tab-footer')) return;
+    this.embedInteracting.set(true);
+    window.addEventListener('pointerup', () => this.embedInteracting.set(false), { once: true });
   }
 
   private updateWindow(key: number, change: Partial<EmbedWindow>) {
@@ -745,7 +825,15 @@ export class Dashboard {
     document.querySelector<HTMLIFrameElement>(`.embed-window[data-key="${key}"] iframe`)?.focus();
   }
 
-  closeWindow(key: number) { this.windows.update(list => list.filter(w => w.key !== key)); }
+  closeWindow(key: number) {
+    const keys = this.windows().map(w => w.key), index = keys.indexOf(key);
+    this.windows.update(list => list.filter(w => w.key !== key));
+    if (this.activeTab() === key) {
+      const next = keys.filter(k => k !== key)[Math.max(0, index - 1)] ?? null;
+      this.activeTab.set(next);
+      if (next !== null) window.setTimeout(() => this.focusFrame(next));
+    }
+  }
 
   toggleMaximized(key: number) {
     const win = this.windows().find(w => w.key === key);
@@ -768,7 +856,8 @@ export class Dashboard {
     window.setTimeout(() => {
       const frame = document.activeElement;
       const key = frame instanceof HTMLIFrameElement ? Number(frame.closest<HTMLElement>('.embed-window')?.dataset['key']) : NaN;
-      if (key) this.focusWindow(key, false);
+      if (key && this.tabbed()) this.tabZ.set(++this.zSeq);
+      else if (key) this.focusWindow(key, false);
     });
   }
 

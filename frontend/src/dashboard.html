@@ -305,14 +305,23 @@
   @if (windows().length) {
     <div class="embed-layer">
       @for (win of windows(); track win.key) {
-        <section class="embed-window" cdkDrag [cdkDragDisabled]="win.maximized" cdkDragBoundary=".embed-layer" [attr.data-key]="win.key"
-          [class.maximized]="win.maximized" [class.minimized]="win.minimized" [class.active]="topWindow() === win.key"
-          [class.interacting]="embedInteracting()" [style.z-index]="win.z" [style.--offset.px]="win.offset"
-          role="dialog" [attr.aria-label]="win.label" [attr.aria-hidden]="win.minimized ? 'true' : null"
+        @let inTabs = tabbed();
+        <section class="embed-window" cdkDrag [cdkDragDisabled]="win.maximized || inTabs" cdkDragBoundary=".embed-layer" [attr.data-key]="win.key"
+          [class.maximized]="win.maximized && !inTabs" [class.minimized]="inTabs ? tabsMinimized() || !tabRect() : win.minimized"
+          [class.active]="inTabs ? activeTab() === win.key : topWindow() === win.key"
+          [class.tabbed]="inTabs" [class.tab-hidden]="inTabs && activeTab() !== win.key"
+          [style.top.px]="inTabs ? tabRect()?.top : null" [style.left.px]="inTabs ? tabRect()?.left : null"
+          [style.width.px]="inTabs ? tabRect()?.width : null" [style.height.px]="inTabs ? tabRect()?.height : null"
+          [class.interacting]="embedInteracting()" [style.z-index]="inTabs ? tabZ() + 1 : win.z" [style.--offset.px]="win.offset"
+          [attr.role]="inTabs ? 'tabpanel' : 'dialog'" [attr.aria-label]="win.label"
+          [attr.aria-hidden]="(inTabs ? tabsMinimized() || activeTab() !== win.key : win.minimized) ? 'true' : null"
           (cdkDragStarted)="embedInteracting.set(true)" (cdkDragEnded)="embedInteracting.set(false)" (pointerdown)="embedPointerDown(win.key, $event)">
           <header class="embed-titlebar" cdkDragHandle (dblclick)="toggleMaximized(win.key)">
             <erebor-icon name="system" />
             <span class="embed-title">{{ win.label }}</span>
+            <button type="button" class="embed-tool" (click)="setTabbed(true)" aria-label="Merge all windows into tabs" title="Merge into tabs">
+              <erebor-icon name="tabs" />
+            </button>
             <button type="button" class="embed-tool" [disabled]="windows().length >= 8" (click)="openWindow(win.service)"
               [attr.aria-label]="'New ' + win.service.label + ' window'" title="New window"><erebor-icon name="plus" /></button>
             <a class="embed-tool" [href]="win.service.url" target="_blank" rel="noopener" title="Open in new tab" aria-label="Open in new tab"
@@ -329,6 +338,50 @@
           <iframe [src]="win.src" [title]="win.label" allow="clipboard-read; clipboard-write"></iframe>
         </section>
       }
+      @if (tabbed()) {
+        @let active = windows().find(w => w.key === activeTab()) ?? windows()[0];
+        <section class="tab-frame" #tabFrame cdkDrag [cdkDragDisabled]="tabsMaximized()" cdkDragBoundary=".embed-layer"
+          [class.maximized]="tabsMaximized()" [class.minimized]="tabsMinimized()" [class.interacting]="embedInteracting()"
+          [style.z-index]="tabZ()" role="dialog" aria-label="Terminals"
+          (cdkDragStarted)="embedInteracting.set(true)" (cdkDragMoved)="syncTabRect()"
+          (cdkDragEnded)="embedInteracting.set(false); syncTabRect()" (pointerdown)="tabFramePointerDown($event)">
+          <header class="tab-bar" cdkDragHandle (dblclick)="tabsMaximized.set(!tabsMaximized())">
+            <div class="tab-list" role="tablist" aria-label="Open terminals" (keydown)="tabKeydown($event)">
+              @for (win of windows(); track win.key) {
+                <div class="tab" [class.active]="activeTab() === win.key" [attr.data-key]="win.key" role="tab"
+                  [attr.aria-selected]="activeTab() === win.key" [attr.tabindex]="activeTab() === win.key ? 0 : -1"
+                  (click)="selectTab(win.key)" (auxclick)="$event.button === 1 && closeWindow(win.key)">
+                  <erebor-icon name="system" /><span class="tab-label">{{ win.label }}</span>
+                  <button type="button" class="tab-close" (click)="$event.stopPropagation(); closeWindow(win.key)"
+                    [attr.aria-label]="'Close ' + win.label" title="Close tab"><erebor-icon name="close" /></button>
+                </div>
+              }
+            </div>
+            <button type="button" class="embed-tool" [disabled]="windows().length >= 8" (click)="openWindow(active.service)"
+              aria-label="New tab" title="New tab"><erebor-icon name="plus" /></button>
+            <a class="embed-tool" [href]="active.service.url" target="_blank" rel="noopener" title="Open in new browser tab"
+              aria-label="Open in new browser tab"><erebor-icon name="external" /></a>
+            <button type="button" class="embed-tool" (click)="setTabbed(false)" aria-label="Split tabs into windows" title="Split into windows">
+              <erebor-icon name="split" />
+            </button>
+            <button type="button" class="embed-tool" (click)="tabsMinimized.set(true)" aria-label="Minimize tabs" title="Minimize"><erebor-icon name="minimize" /></button>
+            <button type="button" class="embed-tool embed-maximize" (click)="tabsMaximized.set(!tabsMaximized())"
+              [attr.aria-label]="tabsMaximized() ? 'Restore window' : 'Maximize window'" [title]="tabsMaximized() ? 'Restore' : 'Maximize'">
+              <erebor-icon [name]="tabsMaximized() ? 'restore' : 'maximize'" />
+            </button>
+          </header>
+          <div class="tab-content"></div>
+          <div class="tab-footer"></div>
+        </section>
+      }
+      @if (tabbed()) {
+        @if (tabsMinimized()) {
+          <nav class="embed-dock" aria-label="Open windows">
+            <button type="button" class="dock-chip minimized" (click)="tabsMinimized.set(false); tabZ.set(tabZ() + 1)"
+              aria-label="Restore terminals"><erebor-icon name="tabs" /><span>Terminals · {{ windows().length }}</span></button>
+          </nav>
+        }
+      } @else {
       <nav class="embed-dock" aria-label="Open windows">
         @for (win of windows(); track win.key) {
           <button type="button" class="dock-chip" [class.active]="topWindow() === win.key" [class.minimized]="win.minimized"
@@ -337,6 +390,7 @@
           </button>
         }
       </nav>
+      }
     </div>
   }
   <ng-template #confirmDialog>

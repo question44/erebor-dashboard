@@ -69,6 +69,8 @@ export const paths: Record<string, string> = {
   'fold-grip': 'M8 5l4-3 4 3 M8 19l4 3 4-3 M4 12h16',
   maximize: 'M4 4h16v16H4z',
   minimize: 'M5 19h14',
+  tabs: 'M3 9h18v11H3z M3 9V5h7v4 M10 5h6v4',
+  split: 'M3 10h12v10H3z M8 10V4h13v11h-6',
   restore: 'M8 4h12v12 M4 8h12v12H4z',
   external: 'M14 4h6v6 M20 4l-9 9 M18 14v6H4V6h6',
   gauge: 'M12 14l4-4 M3.3 19a10 10 0 1 1 17.4 0',

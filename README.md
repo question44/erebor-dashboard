@@ -84,7 +84,9 @@ a draggable, resizable in-page window (full screen on phones) when the dashboard
 is opened on one of those hostnames; elsewhere it stays a normal link. Each click
 (or **+** in a window's title bar) opens another window, up to 8, each with its
 own session; windows cascade, come forward when clicked, and can be minimised to
-a dock at the bottom of the page. The
+a dock at the bottom of the page. **Merge into tabs** (in any title bar) puts every window
+into one tabbed window, and **Split into windows** reverses it; the terminals keep
+running either way. The choice is remembered per device. The
 service must allow framing, e.g. `frame-ancestors https://dashboard.example.org`. A **Show hidden**
 toggle reveals hidden items again. The arrangement is stored per account in the
 API's SQLite database (`PUT /api/control/layout`); without accounts it is kept

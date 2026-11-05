@@ -263,3 +263,33 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--primary); outli
 @media (max-width: 599px) {
   .embed-window { bottom: 64px !important; }
 }
+
+// Tab mode: one frame with a tab strip; the terminals are laid over its content area.
+.tab-frame { position: absolute; top: 72px; left: max(16px, calc(50vw - 420px)); width: min(840px, calc(100vw - 32px)); height: min(560px, calc(100vh - 104px));
+  min-width: 320px; min-height: 200px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px);
+  display: flex; flex-direction: column; overflow: hidden; resize: both; pointer-events: auto; border-radius: 16px; background: #000;
+  box-shadow: 0 22px 56px rgb(0 0 0 / .4), 0 0 0 1px color-mix(in srgb, var(--primary) 45%, transparent); }
+.tab-frame.maximized { inset: 8px !important; width: auto; height: auto; max-width: none; max-height: none; resize: none; transform: none !important; }
+.tab-frame.minimized { display: none; }
+.tab-bar { display: flex; align-items: center; gap: 4px; height: 44px; flex-shrink: 0; padding: 0 6px; background: var(--paper); cursor: grab; user-select: none; touch-action: none; }
+.tab-frame.maximized .tab-bar { cursor: default; }
+.tab-list { flex: 1; min-width: 0; display: flex; align-items: flex-end; gap: 2px; height: 100%; overflow-x: auto; scrollbar-width: none; }
+.tab { display: flex; align-items: center; gap: 6px; flex-shrink: 0; max-width: 200px; height: 34px; padding: 0 4px 0 12px; border-radius: 10px 10px 0 0;
+  color: var(--secondary); font-size: .8rem; font-weight: 600; cursor: pointer; }
+.tab:hover { background: color-mix(in srgb, var(--icon-bg) 60%, transparent); }
+.tab.active { background: #000; color: #e6e0e9; }
+.tab:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.tab > erebor-icon { width: 16px; height: 16px; color: var(--primary); }
+.tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-close { display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 6px; background: none; color: inherit; cursor: pointer; opacity: .7; }
+.tab-close:hover { opacity: 1; background: color-mix(in srgb, var(--secondary) 25%, transparent); }
+.tab-close erebor-icon { width: 14px; height: 14px; }
+.tab-content { flex: 1; }
+.tab-footer { height: 12px; flex-shrink: 0; background: #000; }
+.embed-window.tabbed { inset: auto; transform: none !important; border-radius: 0; box-shadow: none; resize: none; min-width: 0; min-height: 0; max-width: none; max-height: none; }
+.embed-window.tabbed .embed-titlebar { display: none; }
+.embed-window.tab-hidden { visibility: hidden; pointer-events: none; }
+@media (max-width: 599px) {
+  .tab-frame { inset: 0 !important; width: auto; height: auto; max-width: none; max-height: none; border-radius: 0; resize: none; transform: none !important; }
+  .tab-footer { height: 0; }
+}
