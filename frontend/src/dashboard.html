@@ -40,7 +40,7 @@
     </div>
   </header>
   @if (editing()) {
-    <p class="notice edit-hint" role="status">Drag cards and services to rearrange them. Use the eye to hide or show one. Changes are saved to your account.</p>
+    <p class="notice edit-hint" role="status">Drag cards, buttons and services anywhere. Use the eye to hide one, and add spacers for empty gaps. Changes are saved to your account.</p>
   }
   <p class="intro">{{ settings.description }}</p>
   @if (hasOutlet) {
@@ -72,7 +72,45 @@
     <h2 id="quick-actions-title">Quick actions</h2>
     <div class="device-controls" cdkDropList cdkDropListOrientation="mixed" data-list="cards" (cdkDropListDropped)="drop('cards', $event)">
       @for (id of visibleCards(); track id; let i = $index) {
-        @if (id !== 'moonshine-pair') {
+        @let kind = cardKind(id);
+        @if (kind === 'spacer') {
+        <div class="spacer-tile" cdkDrag [cdkDragDisabled]="!editing() || !canArrange()" [cdkDragStartDelay]="dragDelay"
+          [attr.aria-hidden]="editing() ? null : 'true'">
+          @if (editing()) {
+            <span class="spacer-label">Spacer</span>
+            <span class="item-tools">
+                <button type="button" class="item-tool" [disabled]="!canArrange()" (click)="removeSpacer('cards', id)"
+                  aria-label="Remove spacer" title="Remove spacer"><erebor-icon name="close" /></button>
+                <button type="button" class="item-tool drag-handle" [disabled]="!canArrange()"
+                  (keydown)="nudge('cards', i, $event)" [attr.aria-label]="'Move ' + 'spacer' + ' (arrow keys)'" title="Drag the card, or use arrow keys here">
+                  <erebor-icon name="grip" />
+                </button>
+            </span>
+          }
+        </div>
+        } @else if (kind === 'action') {
+        @let action = actionById[id];
+        <div class="action-tile" cdkDrag [cdkDragDisabled]="!editing() || !canArrange()" [cdkDragStartDelay]="dragDelay"
+          [class.is-hidden]="isHidden('cards', id)">
+          <button mat-button class="action" [class.danger]="action.danger"
+            [attr.data-action]="action.id" [disabled]="!canExecute(action)" (click)="activate(action)">
+            <span class="action-content"><erebor-icon [name]="action.icon" /><span>{{ action.label }}</span></span>
+          </button>
+          @if (editing()) {
+            <span class="item-tools">
+                <button type="button" class="item-tool" [class.active]="isHidden('cards', id)" [disabled]="!canArrange()"
+                  (click)="toggleHidden('cards', id)" [attr.aria-pressed]="isHidden('cards', id)"
+                  [attr.aria-label]="'Hide ' + action.label" [title]="isHidden('cards', id) ? 'Hidden — click to show' : 'Hide'">
+                  <erebor-icon [name]="isHidden('cards', id) ? 'eye-off' : 'eye'" />
+                </button>
+                <button type="button" class="item-tool drag-handle" [disabled]="!canArrange()"
+                  (keydown)="nudge('cards', i, $event)" [attr.aria-label]="'Move ' + action.label + ' (arrow keys)'" title="Drag the card, or use arrow keys here">
+                  <erebor-icon name="grip" />
+                </button>
+            </span>
+          }
+        </div>
+        } @else if (kind === 'device') {
         @let device = deviceById[id];
         <div class="device-control" cdkDrag [cdkDragDisabled]="!editing() || !canArrange()" [cdkDragStartDelay]="dragDelay" [class.is-hidden]="isHidden('cards', id)"
           [attr.data-device]="device.id" role="group" [attr.aria-label]="device.label">
@@ -146,24 +184,37 @@
         }
       }
     </div>
-    <div class="actions">
-      @for (action of systemActions; track action.id) {
-        <button mat-button class="action" [class.danger]="action.danger"
-          [attr.data-action]="action.id" [disabled]="!canExecute(action)" (click)="activate(action)">
-          <span class="action-content"><erebor-icon [name]="action.icon" /><span>{{ action.label }}</span></span>
-        </button>
-      }
-    </div>
+    @if (editing()) {
+      <button mat-stroked-button type="button" class="add-spacer" [disabled]="!canArrange() || spacerCount('cards') >= 16"
+        (click)="addSpacer('cards')"><span class="menu-item"><erebor-icon name="plus" />Add spacer</span></button>
+    }
     @if (status(); as message) {
       <p class="notice" [class.error]="message.severity === 'error'" [class.success]="message.severity === 'success'" role="status" aria-live="polite">{{ message.text }}</p>
     }
   </section>
   }
-  @if (visibleServices().length) {
+  @if (services.length && (editing() || hasVisibleService())) {
   <section aria-labelledby="services-title" class="services-section">
     <h2 id="services-title">Services</h2>
     <div class="services" cdkDropList cdkDropListOrientation="mixed" data-list="services" (cdkDropListDropped)="drop('services', $event)">
-      @for (service of visibleServices(); track service.id; let i = $index) {
+      @for (id of visibleServices(); track id; let i = $index) {
+        @if (isSpacer(id)) {
+        <div class="spacer-tile" cdkDrag [cdkDragDisabled]="!editing() || !canArrange()" [cdkDragStartDelay]="dragDelay"
+          [attr.aria-hidden]="editing() ? null : 'true'">
+          @if (editing()) {
+            <span class="spacer-label">Spacer</span>
+            <span class="item-tools">
+                <button type="button" class="item-tool" [disabled]="!canArrange()" (click)="removeSpacer('services', id)"
+                  aria-label="Remove spacer" title="Remove spacer"><erebor-icon name="close" /></button>
+                <button type="button" class="item-tool drag-handle" [disabled]="!canArrange()"
+                  (keydown)="nudge('services', i, $event)" [attr.aria-label]="'Move ' + 'spacer' + ' (arrow keys)'" title="Drag the card, or use arrow keys here">
+                  <erebor-icon name="grip" />
+                </button>
+            </span>
+          }
+        </div>
+        } @else {
+        @let service = serviceById[id];
         <div class="service-item" cdkDrag [cdkDragDisabled]="!editing() || !canArrange()" [cdkDragStartDelay]="dragDelay" [class.is-hidden]="isHidden('services', service.id)">
         <a mat-button class="service" [class.unavailable]="!hostAvailable()" [id]="service.id"
           [disabled]="!hostAvailable()" [attr.href]="hostAvailable() && !editing() ? service.url : null"
@@ -187,8 +238,13 @@
         </span>
         }
         </div>
+        }
       }
     </div>
+    @if (editing()) {
+      <button mat-stroked-button type="button" class="add-spacer" [disabled]="!canArrange() || spacerCount('services') >= 16"
+        (click)="addSpacer('services')"><span class="menu-item"><erebor-icon name="plus" />Add spacer</span></button>
+    }
   </section>
   }
   @if (settings.auth && !actions.length && !services.length && !hasOutlet && !showHostStatus) {

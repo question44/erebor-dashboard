@@ -32,7 +32,6 @@ h2 { font-size: 1.25rem; font-weight: 600; margin: 0 0 16px; }
 .outlet-readings dt { color: var(--secondary); font-size: .8rem; }
 .outlet-readings dd { margin: 6px 0 0; font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 .outlet-readings dd span { font-size: .85rem; font-weight: 400; }
-.actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; }
 .action.mat-mdc-button { height: auto; min-height: 104px; min-width: 0; padding: 16px 4px; border-radius: 24px; background: var(--paper); color: var(--primary); }
 .action-content { display: flex; flex-direction: column; align-items: center; gap: 10px; font-size: .8rem; font-weight: 600; letter-spacing: normal; white-space: normal; line-height: 1.35; }
 .action-content erebor-icon { width: 26px; height: 26px; }
@@ -61,12 +60,12 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--primary); outli
 .mat-mdc-unelevated-button.danger { @include mat.button-overrides((filled-container-color: var(--error), filled-label-text-color: light-dark(white, #690005))); }
 @media (max-width: 599px) {
   main { padding: 24px; }
-  .actions { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .services { grid-template-columns: 1fr; }
 }
 
-.device-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
-.device-control { display: flex; flex-direction: column; padding: 16px; border-radius: 20px; background: var(--paper); min-width: 0; }
+// Quick actions: one grid of 4 units (2 on phones); status cards take 2, action tiles and spacers 1.
+.device-controls { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.device-control { grid-column: span 2; display: flex; flex-direction: column; padding: 16px; border-radius: 20px; background: var(--paper); min-width: 0; }
 .state-summary { flex: 1; }
 .device-actions { display: flex; gap: 8px; margin-top: 16px; }
 .device-action.mat-mdc-button { flex: 1; min-height: 44px; border-radius: 12px; @include mat.button-overrides((text-label-text-color: var(--primary))); }
@@ -79,7 +78,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--primary); outli
 .state-heading strong[data-state="on"], .state-heading strong[data-state="awake"] { color: light-dark(#236b31, #a0d5a6); }
 .state-heading strong[data-state="mixed"], .state-heading strong[data-state="asleep"] { color: light-dark(#805600, #f1cb77); }
 .state-summary p { margin: 8px 0 0; font-size: .8rem; line-height: 1.5; color: var(--secondary); }
-@media (max-width: 599px) { .device-controls { grid-template-columns: 1fr; } }
+@media (max-width: 599px) { .device-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 // Accounts: sign-in, setup wizard and user management.
 .header-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -178,3 +177,20 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--primary); outli
   main:has(> header .edit-button) .host-heading { padding-right: 48px; }
   .edit-button.mat-mdc-icon-button { position: absolute; top: 20px; right: 16px; }
 }
+
+.action-tile { position: relative; min-width: 0; display: flex; }
+.action-tile .action.mat-mdc-button { width: 100%; height: 100%; }
+.action-tile .item-tools { position: absolute; top: 6px; right: 6px; margin: 0; }
+.editing .action-tile .action.mat-mdc-button { pointer-events: none; }
+.spacer-tile { position: relative; min-width: 0; min-height: 104px; border-radius: 24px; }
+.services .spacer-tile { min-height: 84px; border-radius: 20px; }
+.editing .spacer-tile { display: grid; place-items: center; outline: 2px dashed color-mix(in srgb, var(--secondary) 45%, transparent); outline-offset: -2px; cursor: grab; }
+.spacer-label { color: var(--secondary); font-size: .8rem; }
+.spacer-tile .item-tools { position: absolute; top: 6px; right: 6px; margin: 0; }
+.add-spacer.mat-mdc-outlined-button { border-radius: 12px; margin: 0 0 16px; }
+.services + .add-spacer { margin-top: 12px; }
+@media (prefers-reduced-motion: no-preference) {
+  .editing .action-tile:not(.cdk-drag-placeholder), .editing .spacer-tile:not(.cdk-drag-placeholder) { animation: wiggle .26s ease-in-out infinite alternate; }
+  .editing .action-tile:nth-child(2n), .editing .spacer-tile:nth-child(2n) { animation-duration: .3s; animation-delay: -.12s; }
+}
+.cdk-drag-preview.action-tile, .cdk-drag-preview.spacer-tile { background: var(--paper); border-radius: 24px; }

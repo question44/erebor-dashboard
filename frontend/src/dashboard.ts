@@ -29,7 +29,11 @@ const HIDDEN = { cards: 'hiddenCards', services: 'hiddenServices' } as const;
 const LOCAL_LAYOUT_KEY = 'erebor-dashboard-layout';
 
 /** Saved IDs first (dropping unknown ones), then anything new in its default position. */
-const arrange = (ids: string[], saved: string[]) => [...new Set([...saved.filter(id => ids.includes(id)), ...ids])];
+const arrange = (ids: string[], saved: string[]) => [...new Set([...saved.filter(id => ids.includes(id) || isSpacer(id)), ...ids])];
+// Empty one-unit cells a user places to leave gaps; stored in the order lists like any item.
+const SPACER = 'spacer-';
+const MAX_SPACERS = 16;
+export const isSpacer = (id: string) => id.startsWith(SPACER);
 
 function readLocalLayout(): Layout {
   try { return { ...emptyLayout(), ...JSON.parse(localStorage.getItem(LOCAL_LAYOUT_KEY) ?? '{}') }; } catch { return emptyLayout(); }
@@ -57,15 +61,19 @@ export class Dashboard {
   readonly systemActions = this.actions.filter(action => action !== this.pairing
     && !this.deviceControls.some(device => device.actions.includes(action)));
   readonly deviceById = Object.fromEntries(this.deviceControls.map(device => [device.id, device]));
-  readonly cardIds = [...this.deviceControls.map(device => device.id), ...(this.pairing ? ['moonshine-pair'] : [])];
-  private readonly serviceById = Object.fromEntries(this.services.map(service => [service.id, service]));
+  readonly actionById = Object.fromEntries(this.systemActions.map(action => [action.id, action]));
+  readonly cardIds = [...this.deviceControls.map(device => device.id), ...(this.pairing ? ['moonshine-pair'] : []),
+    ...this.systemActions.map(action => action.id)];
+  readonly isSpacer = isSpacer;
+  readonly serviceById = Object.fromEntries(this.services.map(service => [service.id, service]));
   readonly layout = signal<Layout>({ ...emptyLayout(), ...(this.settings.auth ? this.settings.layout : readLocalLayout()) });
   private readonly order = {
     cards: computed(() => arrange(this.cardIds, this.layout().cards)),
     services: computed(() => arrange(this.services.map(service => service.id), this.layout().services)),
   };
   readonly visibleCards = computed(() => this.visible('cards'));
-  readonly visibleServices = computed(() => this.visible('services').map(id => this.serviceById[id]));
+  readonly visibleServices = computed(() => this.visible('services'));
+  readonly hasVisibleService = computed(() => this.visibleServices().some(id => !isSpacer(id)));
   readonly hiddenCount = computed(() => this.order.cards().filter(id => this.isHidden('cards', id)).length
     + this.order.services().filter(id => this.isHidden('services', id)).length);
   private saveTimer?: number;
@@ -473,6 +481,23 @@ export class Dashboard {
 
   private visible(list: Arrangeable) {
     return this.order[list]().filter(id => this.editing() || this.layout().showHidden || !this.isHidden(list, id));
+  }
+
+  cardKind(id: string) {
+    return isSpacer(id) ? 'spacer' : id === 'moonshine-pair' ? 'pair' : this.actionById[id] ? 'action' : 'device';
+  }
+
+  spacerCount(list: Arrangeable) { return this.order[list]().filter(isSpacer).length; }
+
+  addSpacer(list: Arrangeable) {
+    if (!this.canArrange() || this.spacerCount(list) >= MAX_SPACERS) return;
+    const id = SPACER + Math.random().toString(36).slice(2, 10);
+    this.saveLayout({ ...this.layout(), [list]: [...this.order[list](), id] });
+  }
+
+  removeSpacer(list: Arrangeable, id: string) {
+    if (!this.canArrange()) return;
+    this.saveLayout({ ...this.layout(), [list]: this.order[list]().filter(item => item !== id) });
   }
 
   isHidden(list: Arrangeable, id: string) { return this.layout()[HIDDEN[list]].includes(id); }

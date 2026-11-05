@@ -69,8 +69,10 @@ and supplied port/scheme. Available icons: display, light, sleep, power, media,
 cloud, sync, torrent, code, system, windows, arrow.
 
 With accounts enabled, each user can tap the pencil (top right) to enter edit
-mode: cards and services wiggle, can be dragged into a new order (arrow keys on
-the move button also work) and hidden with the eye button. A **Show hidden**
+mode: cards, action buttons and services wiggle, can be dragged into a new order
+(arrow keys on the move button also work) and hidden with the eye button. Quick
+actions form one grid (4 units, 2 on phones): status cards take 2 units, buttons 1,
+and "Add spacer" inserts an empty 1-unit cell (also available among services). A **Show hidden**
 toggle reveals hidden items again. The arrangement is stored per account in the
 API's SQLite database (`PUT /api/control/layout`); without accounts it is kept
 in the browser. The sign-in screen lists accounts recently used on that device.
