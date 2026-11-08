@@ -176,7 +176,7 @@ The standalone command accepts environment variables `DASHBOARD_HOSTS` and
 
 Set `control.tasks.command` to a command (argv) that prints a task board as JSON,
 and optionally `control.tasks.linkBase` to a URL prefix for its task paths.
-Administrators then get a read-only **Tasks** card: counts of active, open and
+Administrators then get a read-only **Tasks** card, folded by default to one summary line (unfolding is remembered per device): counts of active, open and
 in-review tasks, overdue reviews, epic progress, and the active or overdue tasks
 (all open tasks on request), each linking to `linkBase` + its path. Other accounts
 neither see the card nor can read `GET /api/control/tasks` (403). The API runs the

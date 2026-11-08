@@ -40,6 +40,9 @@ const SPRING = CSS.supports('transition-timing-function', 'linear(0, 1)')
 const MAX_WINDOWS = 8;
 // Per-device choice between separate windows and one tabbed window.
 const WINDOW_MODE_KEY = 'erebor-dashboard-window-mode';
+// The task card starts folded; unfolding it is remembered on this device.
+const TASKS_OPEN_KEY = 'erebor-dashboard-tasks-open';
+const readTasksOpen = () => { try { return localStorage.getItem(TASKS_OPEN_KEY) === '1'; } catch { return false; } };
 const readTabbed = () => { try { return localStorage.getItem(WINDOW_MODE_KEY) === 'tabs'; } catch { return false; } };
 interface EmbeddableService { id: string; label: string; url?: string; embedOn?: string[]; }
 interface EmbedWindow {
@@ -153,6 +156,7 @@ export class Dashboard {
   readonly taskBoard = signal<TaskBoard | null>(null);
   readonly taskBoardError = signal(false);
   readonly showAllTasks = signal(false);
+  readonly tasksFolded = signal(!readTasksOpen());
   /** Epics are listed with their progress; their children and other tasks needing a look follow. */
   readonly attentionTasks = computed(() => (this.taskBoard()?.tasks ?? [])
     .filter(task => task.status === 'ACTIVE' || task.overdue));
@@ -254,6 +258,18 @@ export class Dashboard {
     } finally {
       this.taskRequest = false;
     }
+  }
+
+  toggleTasks() {
+    const folded = !this.tasksFolded();
+    this.tasksFolded.set(folded);
+    try {
+      if (folded) localStorage.removeItem(TASKS_OPEN_KEY); else localStorage.setItem(TASKS_OPEN_KEY, '1');
+    } catch { /* Per-session only. */ }
+  }
+
+  taskSummary(board: TaskBoard) {
+    return `${board.counts.ACTIVE} active · ${board.counts.OPEN} open · ${board.counts.REVIEW} in review · ${board.overdue} overdue`;
   }
 
   taskTitle(task: TaskItem) {
