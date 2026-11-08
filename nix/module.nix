@@ -52,6 +52,23 @@ in
         default = "http://127.0.0.1:47989";
         description = "Moonshine HTTP endpoint for `moonshine-pair`; pending client IDs come from moonshine.service's journal.";
       };
+      tasks = {
+        command = lib.mkOption {
+          type = lib.types.nullOr (lib.types.listOf lib.types.str);
+          default = null;
+          example = [ "/etc/nixos/scripts/erebor-tasks" "--root" "/etc/nixos" "list" "--json" ];
+          description = ''
+            Command (argv) printing a task board as JSON; administrators then see a read-only
+            task card. Runs on each refresh as the control user.
+          '';
+        };
+        linkBase = lib.mkOption {
+          type = lib.types.str;
+          default = "";
+          example = "https://github.com/owner/repo/blob/master/";
+          description = "URL prefix for the board's repository-relative task paths; empty means no links.";
+        };
+      };
       extraPackages = lib.mkOption {
         type = lib.types.listOf lib.types.package;
         default = [ ];
@@ -73,6 +90,9 @@ in
         DASHBOARD_ACTIONS = lib.concatStringsSep "," cfg.control.enabledActions;
         DASHBOARD_MOONSHINE_URL = cfg.control.moonshineUrl;
         DASHBOARD_SETTINGS = settingsFormat.generate "erebor-dashboard-settings.json" cfg.settings;
+      } // lib.optionalAttrs (cfg.control.tasks.command != null) {
+        DASHBOARD_TASKS_COMMAND = builtins.toJSON cfg.control.tasks.command;
+        DASHBOARD_TASKS_LINK_BASE = cfg.control.tasks.linkBase;
       } // lib.optionalAttrs (cfg.control.wledUrl != null) {
         DASHBOARD_WLED_URL = cfg.control.wledUrl;
       };

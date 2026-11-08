@@ -59,6 +59,54 @@
       }
     </section>
   }
+  @if (hasTaskBoard) {
+    <section class="outlet-panel task-panel" aria-labelledby="tasks-title">
+      <div class="outlet-heading"><h2 id="tasks-title">Tasks</h2>
+        <span>{{ taskBoardError() ? (taskBoard() ? 'Not refreshed' : 'Unavailable') : taskBoard() ? 'Administrators only' : 'Loading…' }}</span>
+      </div>
+      @if (taskBoard(); as board) {
+        <dl class="outlet-readings task-counts">
+          <div><dt>Active</dt><dd>{{ board.counts.ACTIVE }}</dd></div>
+          <div><dt>Open</dt><dd>{{ board.counts.OPEN }}</dd></div>
+          <div><dt>In review</dt><dd>{{ board.counts.REVIEW }}</dd></div>
+          <div [class.overdue]="board.overdue"><dt>Overdue reviews</dt><dd>{{ board.overdue }}</dd></div>
+        </dl>
+        @if (board.epics.length) {
+          <ul class="task-epics" aria-label="Epics">
+            @for (epic of board.epics; track epic.id) {
+              <li>
+                <div class="task-epic-label">
+                  @if (epic.url) { <a [href]="epic.url" target="_blank" rel="noopener">{{ epic.id }}</a> } @else { <span>{{ epic.id }}</span> }
+                  <span class="task-title">{{ epic.title }}</span>
+                  <span class="task-progress-text">{{ epic.done }} of {{ epic.total }} done</span>
+                </div>
+                <progress [value]="epic.done" [max]="epic.total || 1" [attr.aria-label]="epic.id + ': ' + epic.done + ' of ' + epic.total + ' done'"></progress>
+              </li>
+            }
+          </ul>
+        }
+        <div class="task-list-heading">
+          <h3>{{ showAllTasks() ? 'All open tasks' : 'Active or overdue' }} ({{ listedTasks().length }})</h3>
+          <button mat-button type="button" (click)="showAllTasks.set(!showAllTasks())" [attr.aria-pressed]="showAllTasks()">
+            {{ showAllTasks() ? 'Only active or overdue' : 'Show all ' + board.tasks.length }}
+          </button>
+        </div>
+        <ul class="task-list">
+          @for (task of listedTasks(); track task.id) {
+            <li [attr.data-status]="task.status" [class.overdue]="task.overdue" [title]="taskTitle(task)">
+              @if (task.url) { <a [href]="task.url" target="_blank" rel="noopener">{{ task.id }}</a> } @else { <span>{{ task.id }}</span> }
+              <span class="task-title">{{ task.title }}</span>
+              <span class="task-meta">{{ task.status === 'OPEN' ? '' : task.status.toLowerCase() }}{{ task.overdue ? (task.status === 'OPEN' ? '' : ' · ') + 'review ' + task.review : '' }}</span>
+            </li>
+          } @empty {
+            <li class="task-empty">Nothing active or overdue.</li>
+          }
+        </ul>
+      } @else {
+        <p>{{ taskBoardError() ? 'Could not read the task board.' : 'Reading tasks…' }}</p>
+      }
+    </section>
+  }
   @if (installPrompt()) {
     <button mat-stroked-button class="install" (click)="install()">Install {{ settings.title }}</button>
   }

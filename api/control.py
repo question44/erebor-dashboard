@@ -45,6 +45,14 @@ POWER_PROFILES = ("org.freedesktop.UPower.PowerProfiles", "/org/freedesktop/UPow
                   "org.freedesktop.UPower.PowerProfiles")
 
 
+# Optional task board for administrators: a command printing the board as JSON
+# (argv as a JSON array) and the URL prefix its repository-relative paths join.
+TASKS_COMMAND = json.loads(os.environ.get("DASHBOARD_TASKS_COMMAND") or "null")
+TASKS_LINK_BASE = os.environ.get("DASHBOARD_TASKS_LINK_BASE", "")
+TASK_PATH = re.compile(r"^[A-Za-z0-9_-]+(?:/[A-Za-z0-9_.-]+)*\.md$")
+TASK_STATUSES = ("ACTIVE", "OPEN", "REVIEW")
+
+
 def load_settings():
     path = os.environ.get("DASHBOARD_SETTINGS")
     if not path:
@@ -574,8 +582,62 @@ def change_own_password(change: PasswordChange, user: User, request: Request):
 @app.get("/api/control/config")
 def read_config(user: User):
     """Dashboard settings reduced to what this account may see."""
-    return {**catalog().view(user), "user": {"username": user["username"], "admin": user["admin"]},
+    view = {**catalog().view(user), "user": {"username": user["username"], "admin": user["admin"]},
             "layout": store().layout(user["username"])}
+    if user["admin"] and TASKS_COMMAND:
+        view["taskBoard"] = True
+    return view
+
+
+TaskText = Annotated[str, StringConstraints(max_length=200)]
+
+
+class TaskItem(BaseModel):
+    id: Annotated[str, StringConstraints(pattern=r"^[A-Z]+-[0-9]{1,6}$")]
+    title: TaskText
+    status: Literal[TASK_STATUSES]
+    overdue: bool
+    review: Annotated[str, StringConstraints(pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")] | None = None
+    epic: TaskText | None = None
+    kind: TaskText | None = None
+    url: str | None = None
+
+
+class TaskEpic(TaskItem):
+    done: Annotated[int, Field(ge=0)]
+    total: Annotated[int, Field(ge=0)]
+
+
+class TaskBoard(BaseModel):
+    counts: dict[Literal[TASK_STATUSES], Annotated[int, Field(ge=0)]]
+    overdue: Annotated[int, Field(ge=0)]
+    epics: Annotated[list[TaskEpic], Field(max_length=100)]
+    tasks: Annotated[list[TaskItem], Field(max_length=1000)]
+
+
+def task_board() -> TaskBoard:
+    """Run the configured task command and keep only the documented fields."""
+    result = subprocess.run(TASKS_COMMAND, capture_output=True, text=True, timeout=10, check=True)
+    raw = json.loads(result.stdout)
+
+    def item(entry):
+        path = entry.get("path", "")
+        url = TASKS_LINK_BASE + path if TASKS_LINK_BASE and TASK_PATH.match(path) and ".." not in path else None
+        return {key: entry.get(key) for key in TaskEpic.model_fields} | {"url": url}
+
+    return TaskBoard(counts=raw["counts"], overdue=raw["overdue"],
+                     epics=[item(e) for e in raw["epics"]], tasks=[item(t) for t in raw["tasks"]])
+
+
+@app.get("/api/control/tasks", response_model=TaskBoard, response_model_exclude_none=True)
+def read_tasks(admin: Admin):
+    if not TASKS_COMMAND:
+        raise HTTPException(404, "No task board is configured")
+    try:
+        return task_board()
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        print(f"Task board failed: {exc}", flush=True)
+        return JSONResponse({"error": "Could not read the task board"}, 503)
 
 
 @app.get("/api/control/users")

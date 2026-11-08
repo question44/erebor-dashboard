@@ -7,7 +7,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatMenuModule } from '@angular/material/menu';
-import { Action, ApiError, Layout, Section, Settings, api, availableActions, emptyLayout, resolveServices } from './config';
+import { Action, ApiError, Layout, Section, Settings, TaskBoard, TaskItem, api, availableActions, emptyLayout, resolveServices } from './config';
 import { Icon } from './icon';
 import { Session } from './session';
 import { PasswordDialog } from './users';
@@ -149,6 +149,15 @@ export class Dashboard {
   // The power LED check also gates host actions, even for accounts that cannot wake the host.
   readonly hasWake = (this.settings.wakeUrl?.startsWith('https://') ?? false) && (!!this.settings.auth || this.canWakeHost);
   readonly showHostStatus = this.hasWake && (this.settings.hostStatus ?? true);
+  readonly hasTaskBoard = !!this.settings.taskBoard && !!this.session.account?.admin;
+  readonly taskBoard = signal<TaskBoard | null>(null);
+  readonly taskBoardError = signal(false);
+  readonly showAllTasks = signal(false);
+  /** Epics are listed with their progress; their children and other tasks needing a look follow. */
+  readonly attentionTasks = computed(() => (this.taskBoard()?.tasks ?? [])
+    .filter(task => task.status === 'ACTIVE' || task.overdue));
+  readonly listedTasks = computed(() => this.showAllTasks() ? this.taskBoard()?.tasks ?? [] : this.attentionTasks());
+  private taskRequest = false;
   readonly hasOutlet = this.settings.outletUrl?.startsWith('https://') ?? false;
   readonly outlet = signal<OutletStatus | null>(null);
   readonly checkingOutlet = signal(false);
@@ -182,6 +191,8 @@ export class Dashboard {
     }, 10000);
     void this.refreshPairing();
     const outletPoll = window.setInterval(() => { void this.refreshOutlet(); void this.refreshPairing(); }, 5000);
+    void this.refreshTasks();
+    const taskPoll = window.setInterval(() => void this.refreshTasks(), 60000);
     // Items below the fold are out of reach for keyboard and screen readers too.
     effect(() => {
       for (const list of ['cards', 'services'] as const) {
@@ -205,6 +216,7 @@ export class Dashboard {
       for (const list of ['cards', 'services'] as const) this.observeGrid(list, undefined);
       window.clearInterval(poll);
       window.clearInterval(outletPoll);
+      window.clearInterval(taskPoll);
       this.clearDevices();
       this.clearPower();
       this.clearOutlet();
@@ -226,7 +238,26 @@ export class Dashboard {
     this.clearDevices();
     this.clearPower();
     this.clearOutlet();
-    if (!document.hidden) { void this.refreshDevices(); void this.refreshPower(); void this.refreshOutlet(); }
+    if (!document.hidden) { void this.refreshDevices(); void this.refreshPower(); void this.refreshOutlet(); void this.refreshTasks(); }
+  }
+
+  /** Read-only task board for administrators; kept while refreshes fail so it never flickers. */
+  async refreshTasks() {
+    if (!this.hasTaskBoard || this.taskRequest || !this.online() || document.hidden || this.session.cached()) return;
+    this.taskRequest = true;
+    try {
+      this.taskBoard.set(await api<TaskBoard>('/tasks'));
+      this.taskBoardError.set(false);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) { this.session.expired(); return; }
+      this.taskBoardError.set(true);
+    } finally {
+      this.taskRequest = false;
+    }
+  }
+
+  taskTitle(task: TaskItem) {
+    return `${task.status}${task.kind === 'check' ? ' · check' : ''}${task.review ? ' · review ' + task.review : ''}${task.overdue ? ' (overdue)' : ''}`;
   }
 
   private clearOutlet() {

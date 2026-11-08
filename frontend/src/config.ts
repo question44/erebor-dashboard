@@ -26,7 +26,16 @@ export interface Settings {
   hostStatus?: boolean;
   user?: Account;
   layout?: Layout;
+  /** Administrators only: a read-only task board is available from the API. */
+  taskBoard?: boolean;
 }
+export type TaskStatus = 'ACTIVE' | 'OPEN' | 'REVIEW';
+export interface TaskItem {
+  id: string; title: string; status: TaskStatus; overdue: boolean;
+  review?: string; epic?: string; kind?: string; url?: string;
+}
+export interface TaskEpic extends TaskItem { done: number; total: number; }
+export interface TaskBoard { counts: Record<TaskStatus, number>; overdue: number; epics: TaskEpic[]; tasks: TaskItem[]; }
 export type PublicSettings = Pick<Settings, 'title' | 'description' | 'domainSuffix' | 'auth'> & Partial<Settings>;
 
 export const MODULES: Record<string, { label: string; description: string }> = {
@@ -74,6 +83,7 @@ export const paths: Record<string, string> = {
   restore: 'M8 4h12v12 M4 8h12v12H4z',
   external: 'M14 4h6v6 M20 4l-9 9 M18 14v6H4V6h6',
   gauge: 'M12 14l4-4 M3.3 19a10 10 0 1 1 17.4 0',
+  tasks: 'M9 6h11 M9 12h11 M9 18h11 M4 6l1 1 2-2 M4 12l1 1 2-2 M4 18l1 1 2-2',
 };
 
 export const availableActions = (title: string): Action[] => [

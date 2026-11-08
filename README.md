@@ -172,6 +172,20 @@ Status, OpenAPI and Swagger UI are under `/api/control/`.
 The standalone command accepts environment variables `DASHBOARD_HOSTS` and
 `DASHBOARD_ACTIONS` (comma-separated), and `DASHBOARD_WLED_URL`.
 
+### Task board
+
+Set `control.tasks.command` to a command (argv) that prints a task board as JSON,
+and optionally `control.tasks.linkBase` to a URL prefix for its task paths.
+Administrators then get a read-only **Tasks** card: counts of active, open and
+in-review tasks, overdue reviews, epic progress, and the active or overdue tasks
+(all open tasks on request), each linking to `linkBase` + its path. Other accounts
+neither see the card nor can read `GET /api/control/tasks` (403). The API runs the
+command on each refresh (every minute while visible, 10-second timeout) and returns
+only these fields: `counts` (`ACTIVE`, `OPEN`, `REVIEW`), `overdue`, and `epics` and
+`tasks` entries with `id`, `title`, `status`, `overdue`, `path` and optional `review`,
+`epic`, `kind`; epics add `done` and `total`. Paths must be relative `.md` paths
+without `..` to get a link.
+
 ## NanoKVM ATX wake
 
 ### Outlet energy readings
