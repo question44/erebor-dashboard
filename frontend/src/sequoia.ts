@@ -31,7 +31,14 @@ interface SequoiaData {
 export const GLASS_SELECTOR = [
   '.outlet-panel', '.action.mat-mdc-button', '.notice', '.service.mat-mdc-button', '.device-control',
   '.auth-card', '.user-card', '.fold-more',
+  // Header controls sit straight on the wallpaper: glass pills keep them readable.
+  'header .mat-mdc-chip', '.account-button.mat-mdc-button', '.edit-button.mat-mdc-icon-button:not(.active)',
 ].join(', ');
+// Text drawn as glass (the title): the element's own text is made transparent by CSS.
+export const GLASS_TEXT_SELECTOR = '.glass-text';
+// Folded sections clip their cards (styles.scss .fold-clip.clipped, overflow-clip-margin 6px).
+const CLIP_SELECTOR = '.fold-clip.clipped';
+const CLIP_MARGIN = 6;
 
 // ---- wallpaper constants (sequoia-re NOTES.md) ------------------------------
 const LOOP_SECONDS = 300.0, LOOP_DISTANCE = 20.0, WRAP_OFFSET = 24.0, WRAP_BORDER = 4.0, CULL_AHEAD = 10.0;
@@ -280,6 +287,101 @@ const GLASS_FS = `#version 300 es
     o = vec4(col * cover, cover);
   }`;
 
+// Glass text: the lens optics on a glyph mask. uMask holds coverage (R) and the
+// distance inside (G) and outside (B) the glyphs, in px / TEXT_MAXD.
+const TEXT_MAXD = 16; // logical px
+const TEXT_VS = `#version 300 es
+  uniform vec4 uRect; uniform vec2 uScreen;
+  out vec2 vUv;
+  void main() {
+    int i = gl_VertexID;
+    vec2 c = vec2(i == 1 || i == 2 || i == 4 ? 1.0 : 0.0, i == 2 || i == 4 || i == 5 ? 1.0 : 0.0);
+    vUv = c;
+    vec2 px = uRect.xy + c * uRect.zw;
+    gl_Position = vec4(px.x / uScreen.x * 2.0 - 1.0, 1.0 - px.y / uScreen.y * 2.0, 0.0, 1.0);
+  }`;
+const TEXT_FS = `#version 300 es
+  precision highp float;
+  uniform sampler2D uBlur, uMask; uniform vec2 uScreen; uniform vec4 uRect; uniform float uDpr, uMaxD, uShadow, uLift;
+  in vec2 vUv; out vec4 o;
+  const float REFRACTION = 9.0;  // logical px: strokes are thin, so a shallow lens
+  const float BEZEL = 6.0;
+  const float CURVATURE = 4.8;
+  const float IOR = 2.12;
+  const float CHROMA = 0.8;
+  const float SPECULAR = 0.35;
+  const float SPECULAR_W = 1.6;
+  const float LIGHT = 41.0;
+  const float RIM_OPACITY = 0.48;
+  const float RIM_SATURATION = 3.5;
+  const float RIM_W = 2.0;
+  const float RIM_LIGHT = -53.0;
+  float profile(float s) {
+    if (s >= 1.0) return 0.0;
+    float a = pow(1.0 - s, CURVATURE);
+    float slope = pow(1.0 - s, CURVATURE - 1.0) * pow(max(1.0 - a, 1e-6), 1.0 / CURVATURE - 1.0);
+    float th = atan(slope);
+    return tan(th - asin(sin(th) / IOR)) / tan(1.5707963 - asin(1.0 / IOR));
+  }
+  vec3 samplePx(vec2 px) {
+    vec2 uv = vec2(px.x, uScreen.y - px.y) / uScreen;
+    return texture(uBlur, clamp(uv, vec2(0.0), vec2(1.0))).rgb;
+  }
+  float sdAt(vec2 uv) { vec3 m = texture(uMask, uv).rgb; return (m.b - m.g) * uMaxD; }
+  void main() {
+    vec2 texel = 1.0 / vec2(textureSize(uMask, 0));
+    vec3 m = texture(uMask, vUv).rgb;
+    float cover = m.r, inside = m.g * uMaxD;
+    // Soft shadow below the letters (offset down), so glass text reads on bright skies.
+    float below = texture(uMask, vUv - vec2(0.0, 2.0 * uDpr) * texel).b * uMaxD;
+    float shadow = uShadow * pow(max(0.0, 1.0 - below / (9.0 * uDpr)), 2.0);
+    if (cover <= 0.002 && shadow <= 0.002) discard;
+    vec2 frag = vec2(gl_FragCoord.x, uScreen.y - gl_FragCoord.y);
+    vec2 g = vec2(sdAt(vUv + vec2(texel.x, 0.0)) - sdAt(vUv - vec2(texel.x, 0.0)),
+                  sdAt(vUv + vec2(0.0, texel.y)) - sdAt(vUv - vec2(0.0, texel.y)));
+    g.y = -g.y; // mask rows run downwards, frag y too
+    vec2 n = length(g) > 1e-4 ? normalize(g) : vec2(0.0);
+    float s = inside + cover - 0.5;
+    float mprof = profile(max(s, 0.0) / (BEZEL * uDpr));
+    vec2 off = -n * mprof * REFRACTION * uDpr;
+    vec3 col = vec3(samplePx(frag + off).r, samplePx(frag + off * (1.0 + CHROMA * 0.5)).g, samplePx(frag + off * (1.0 + CHROMA)).b);
+    col = mix(col, vec3(1.0), uLift);
+    float la = radians(LIGHT);
+    float facing = dot(n, vec2(cos(la), sin(la)));
+    float shade = 0.12 + 0.88 * (facing > 0.0 ? facing : -0.4 * facing);
+    float crisp = max(0.0, 1.0 - max(s, 0.0) / (SPECULAR_W * uDpr));
+    col += min(1.0, SPECULAR * crisp * crisp * shade);
+    float ra = radians(RIM_LIGHT);
+    float edge = max(0.0, 1.0 - max(s, 0.0) / (RIM_W * uDpr));
+    float rim = RIM_OPACITY * edge * edge * abs(dot(n, vec2(cos(ra), sin(ra))));
+    float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
+    col = mix(col, max(mix(vec3(lum), col, RIM_SATURATION), 0.0), rim);
+    // Premultiplied: glass where the glyphs are, shadow around them.
+    float a = cover + shadow * (1.0 - cover);
+    o = vec4(col * cover, a);
+  }`;
+
+// Squared Euclidean distance transform (Felzenszwalb & Huttenlocher), in place on f (w x h).
+function edt(f: Float32Array, w: number, h: number) {
+  const n = Math.max(w, h), d = new Float32Array(n), v = new Int32Array(n), z = new Float32Array(n + 1), g = new Float32Array(n);
+  const pass = (len: number, get: (i: number) => number, set: (i: number, x: number) => void) => {
+    for (let i = 0; i < len; i++) g[i] = get(i);
+    let k = 0; v[0] = 0; z[0] = -Infinity; z[1] = Infinity;
+    for (let q = 1; q < len; q++) {
+      let sv = ((g[q] + q * q) - (g[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
+      while (sv <= z[k]) { k--; sv = ((g[q] + q * q) - (g[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]); }
+      k++; v[k] = q; z[k] = sv; z[k + 1] = Infinity;
+    }
+    k = 0;
+    for (let q = 0; q < len; q++) { while (z[k + 1] < q) k++; d[q] = (q - v[k]) * (q - v[k]) + g[v[k]]; }
+    for (let i = 0; i < len; i++) set(i, d[i]);
+  };
+  for (let x = 0; x < w; x++) pass(h, y => f[y * w + x], (y, val) => { f[y * w + x] = val; });
+  for (let y = 0; y < h; y++) pass(w, x => f[y * w + x], (x, val) => { f[y * w + x] = val; });
+}
+
+interface TextMask { key: string; tex: WebGLTexture; w: number; h: number; pad: number; }
+
 interface Target { tex: WebGLTexture; fb: WebGLFramebuffer; w: number; h: number; }
 
 export class SequoiaRenderer {
@@ -303,6 +405,7 @@ export class SequoiaRenderer {
   private sceneDirty = true;
   private stopped = false;
   private radii = new WeakMap<Element, number[]>();
+  private masks = new WeakMap<Element, TextMask>();
   private readonly dark = matchMedia('(prefers-color-scheme: dark)');
   private readonly reduced = matchMedia('(prefers-reduced-motion: reduce)');
   private readonly onScheme = () => this.setGradient(this.dark.matches ? DARK_GRADIENT : LIGHT_GRADIENT);
@@ -333,6 +436,7 @@ export class SequoiaRenderer {
     this.progs['down'] = this.program(FULL_VS, DOWN_FS);
     this.progs['up'] = this.program(FULL_VS, UP_FS);
     this.progs['glass'] = this.program(GLASS_VS, GLASS_FS);
+    this.progs['text'] = this.program(TEXT_VS, TEXT_FS);
     this.emptyVao = gl.createVertexArray()!;
 
     const meshBuf = b64(data.mesh);
@@ -601,6 +705,7 @@ export class SequoiaRenderer {
     for (const el of document.querySelectorAll(GLASS_SELECTOR)) {
       const r = el.getBoundingClientRect();
       if (r.width < 1 || r.height < 1 || r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth) continue;
+      if (!this.clip(el, r, k)) continue;
       let radii = this.radii.get(el);
       if (!radii) {
         const cs = getComputedStyle(el);
@@ -612,8 +717,100 @@ export class SequoiaRenderer {
       gl.uniform4f(uRadius, radii[0] * k, radii[1] * k, radii[2] * k, radii[3] * k);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
+    gl.disable(gl.SCISSOR_TEST);
+    this.drawText(k);
     gl.disable(gl.BLEND);
     gl.bindVertexArray(null);
+  }
+
+  /** Scissor to the folded section around el; false when el is clipped away or hidden. */
+  private clip(el: Element, r: DOMRect, k: number) {
+    const gl = this.gl;
+    if (el.checkVisibility && !el.checkVisibility({ visibilityProperty: true })) return false;
+    const clipper = el.closest(CLIP_SELECTOR);
+    if (!clipper) { gl.disable(gl.SCISSOR_TEST); return true; }
+    const c = clipper.getBoundingClientRect();
+    const left = Math.max(r.left, c.left - CLIP_MARGIN), right = Math.min(r.right, c.right + CLIP_MARGIN);
+    const top = Math.max(r.top, c.top - CLIP_MARGIN), bottom = Math.min(r.bottom, c.bottom + CLIP_MARGIN);
+    if (right <= left || bottom <= top) return false;
+    gl.enable(gl.SCISSOR_TEST);
+    const x0 = Math.floor(left * k), y0 = Math.floor(this.height - bottom * k);
+    gl.scissor(x0, y0, Math.ceil(right * k) - x0, Math.ceil(this.height - top * k) - y0);
+    return true;
+  }
+
+  private drawText(k: number) {
+    const gl = this.gl, dark = this.dark.matches;
+    const items = Array.from(document.querySelectorAll(GLASS_TEXT_SELECTOR));
+    if (!items.length) return;
+    gl.useProgram(this.progs['text']);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.chain[2].tex);
+    gl.uniform1i(this.u('text', 'uBlur'), 0);
+    gl.uniform1i(this.u('text', 'uMask'), 1);
+    gl.uniform2f(this.u('text', 'uScreen'), this.width, this.height);
+    gl.uniform1f(this.u('text', 'uDpr'), this.dpr);
+    gl.uniform1f(this.u('text', 'uMaxD'), TEXT_MAXD * this.dpr);
+    gl.uniform1f(this.u('text', 'uShadow'), dark ? 0.5 : 0.3);
+    gl.uniform1f(this.u('text', 'uLift'), dark ? 0.1 : 0.18);
+    for (const el of items) {
+      const r = el.getBoundingClientRect();
+      if (r.width < 1 || r.height < 1 || r.bottom < 0 || r.top > innerHeight) continue;
+      const mask = this.textMask(el, r, k);
+      if (!mask) continue;
+      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, mask.tex);
+      gl.uniform4f(this.u('text', 'uRect'), r.left * k - mask.pad, r.top * k - mask.pad, mask.w, mask.h);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
+    gl.activeTexture(gl.TEXTURE0);
+  }
+
+  /** The element's text as coverage + inside/outside distance, cached until text, font or size change. */
+  private textMask(el: Element, r: DOMRect, k: number): TextMask | null {
+    const cs = getComputedStyle(el);
+    const text = el.textContent?.trim() ?? '';
+    const key = [text, cs.font, cs.letterSpacing, Math.round(r.width * k), Math.round(r.height * k)].join('|');
+    const cached = this.masks.get(el);
+    if (cached?.key === key) return cached;
+    if (!text) return null;
+    const pad = Math.ceil(TEXT_MAXD * this.dpr);
+    const w = Math.ceil(r.width * k) + 2 * pad, h = Math.ceil(r.height * k) + 2 * pad;
+    const c2 = document.createElement('canvas'); c2.width = w; c2.height = h;
+    const ctx = c2.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+    const size = parseFloat(cs.fontSize) * k;
+    ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${size}px ${cs.fontFamily}`;
+    const spacing = parseFloat(cs.letterSpacing);
+    if ('letterSpacing' in ctx) (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${(isNaN(spacing) ? 0 : spacing) * k}px`;
+    // Where the DOM put the glyphs: the text's own box; its top is the font's ascent above the baseline.
+    const range = document.createRange(); range.selectNodeContents(el);
+    const tr = range.getBoundingClientRect();
+    const metrics = ctx.measureText(text);
+    ctx.fillStyle = '#fff'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText(text, pad + (tr.left - r.left) * k, pad + (tr.top - r.top) * k + metrics.fontBoundingBoxAscent);
+    const alpha = ctx.getImageData(0, 0, w, h).data;
+    const inside = new Float32Array(w * h), outside = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) {
+      const on = alpha[i * 4 + 3] >= 128;
+      inside[i] = on ? 1e10 : 0; outside[i] = on ? 0 : 1e10;
+    }
+    edt(inside, w, h); edt(outside, w, h);
+    const maxd = TEXT_MAXD * this.dpr, out = new Uint8Array(w * h * 4);
+    for (let i = 0; i < w * h; i++) {
+      out[i * 4] = alpha[i * 4 + 3];
+      out[i * 4 + 1] = Math.min(255, Math.round(Math.sqrt(inside[i]) / maxd * 255));
+      out[i * 4 + 2] = Math.min(255, Math.round(Math.sqrt(outside[i]) / maxd * 255));
+      out[i * 4 + 3] = 255;
+    }
+    const gl = this.gl;
+    const tex = cached?.tex ?? gl.createTexture()!;
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, out);
+    this.params(gl.LINEAR);
+    gl.activeTexture(gl.TEXTURE0);
+    const mask = { key, tex, w, h, pad };
+    this.masks.set(el, mask);
+    return mask;
   }
 }
 

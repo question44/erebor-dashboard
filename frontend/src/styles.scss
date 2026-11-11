@@ -22,8 +22,16 @@ html.sequoia { --glass-fill: 42%; }
 @media (prefers-color-scheme: dark) { html.sequoia { --glass-fill: 55%; } }
 .sequoia-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: -1; pointer-events: none; }
 html.sequoia :is(.outlet-panel, .action.mat-mdc-button, .notice, .service.mat-mdc-button, .device-control,
-  .auth-card, .user-card, .fold-more) {
+  .auth-card, .user-card, .fold-more, header .mat-mdc-chip, .account-button.mat-mdc-button,
+  .edit-button.mat-mdc-icon-button:not(.active)) {
   background: color-mix(in srgb, var(--paper) var(--glass-fill), transparent);
+}
+/* The title is drawn as glass text by sequoia.ts; the DOM text stays for layout and selection. */
+html.sequoia .glass-text { color: transparent; }
+/* Text straight on the wallpaper: a soft halo in the page colour. */
+html.sequoia { --halo: color-mix(in srgb, var(--page) 75%, transparent); }
+html.sequoia :is(.intro, h2, footer, .host-status, .show-hidden, .section-heading) {
+  color: var(--ink); text-shadow: 0 0 2px var(--halo), 0 0 10px var(--halo), 0 0 18px var(--halo);
 }
 main { max-width: 900px; margin: auto; padding: 48px 24px; }
 header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
