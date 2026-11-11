@@ -28,7 +28,7 @@ html.sequoia { background: #3d63d4; overscroll-behavior-y: none; }
 @media (prefers-color-scheme: dark) { html.sequoia { background: #241a6e; } }
 /* The glass and its tint (var(--paper) at --glass-fill) are drawn by sequoia.ts. */
 html.sequoia :is(.outlet-panel, .action.mat-mdc-button, .notice, .service.mat-mdc-button, .device-control,
-  .auth-card, .user-card, .fold-more, header .mat-mdc-chip, .account-button.mat-mdc-button,
+  .auth-card, .user-card, .fold-more, .account-button.mat-mdc-button,
   .edit-button.mat-mdc-icon-button:not(.active)) {
   background: transparent;
 }
@@ -420,6 +420,15 @@ div.mat-mdc-menu-panel.glass-menu.mat-menu-panel-exit-animation { animation: gla
   to { opacity: 0; clip-path: inset(-48px -48px 40% -48px); transform: translateY(-4px) scale(.97); }
 }
 .glass-menu .mat-mdc-menu-content { position: relative; padding: 6px 0; }
+/* Tasks card unrolling (Dashboard.toggleTasks): the card's height springs, the board fades in from a blur and melts away on fold. */
+.task-panel.unfolding { overflow: hidden; }
+#task-board { animation: task-board-in .55s var(--spring) both; transform-origin: top center; }
+#task-board.leaving { transition: opacity .2s ease-in, transform .3s ease-in, filter .3s ease-in; opacity: 0; transform: translateY(-8px) scaleY(.97); filter: blur(6px); }
+@keyframes task-board-in {
+  from { opacity: 0; transform: translateY(-10px) scaleY(.96); filter: blur(6px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+@media (prefers-reduced-motion: reduce) { #task-board { animation: none; } }
 .glass-menu .mat-mdc-menu-item { background: transparent !important; }
 .glass-menu .mat-mdc-menu-item .mat-mdc-menu-item-text, .glass-menu .mat-mdc-menu-submenu-icon { color: var(--ink); }
 .glass-menu .mat-mdc-menu-item .mat-mdc-focus-indicator::before, .glass-menu .mat-mdc-menu-item::after { display: none; }

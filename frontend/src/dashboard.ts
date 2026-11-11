@@ -1,13 +1,13 @@
-import { Component, DestroyRef, ElementRef, HostListener, TemplateRef, ViewChild, computed, effect, inject, signal } from '@angular/core';
+import { Component, DestroyRef, ElementRef, HostListener, Injector, TemplateRef, ViewChild, afterNextRender, computed, effect, inject, signal } from '@angular/core';
 import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { A11yModule } from '@angular/cdk/a11y';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { MatChipsModule } from '@angular/material/chips';
 import { MatMenuModule } from '@angular/material/menu';
 import { Action, ApiError, Layout, Section, Settings, TaskBoard, TaskItem, api, availableActions, emptyLayout, resolveServices } from './config';
 import { Icon } from './icon';
+import { createSpring } from './vendor/liquid-glass.js';
 import { BACKGROUNDS, background, sequoiaAvailable, setBackground } from './background';
 import { Session } from './session';
 import { PasswordDialog } from './users';
@@ -59,7 +59,7 @@ function readLocalLayout(): Layout {
 
 @Component({
   selector: 'erebor-dashboard',
-  imports: [Icon, A11yModule, MatButtonModule, MatDialogModule, MatChipsModule, MatMenuModule,
+  imports: [Icon, A11yModule, MatButtonModule, MatDialogModule, MatMenuModule,
     CdkDropList, CdkDrag, CdkDragHandle],
   templateUrl: './dashboard.html',
 })
@@ -267,12 +267,57 @@ export class Dashboard {
     }
   }
 
+  private readonly injector = inject(Injector);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private tasksAnimating = false;
+
+  // The Tasks card unrolls like the glass menus: its height springs to the new size (the glass,
+  // drawn at the card's rectangle, follows every frame) while the board fades in from a blur;
+  // folding melts the board and rolls the card back to its heading before the board is removed.
   toggleTasks() {
     const folded = !this.tasksFolded();
-    this.tasksFolded.set(folded);
-    try {
-      if (folded) localStorage.removeItem(TASKS_OPEN_KEY); else localStorage.setItem(TASKS_OPEN_KEY, '1');
-    } catch { /* Per-session only. */ }
+    const commit = () => {
+      this.tasksFolded.set(folded);
+      try {
+        if (folded) localStorage.removeItem(TASKS_OPEN_KEY); else localStorage.setItem(TASKS_OPEN_KEY, '1');
+      } catch { /* Per-session only. */ }
+    };
+    const panel = this.host.nativeElement.querySelector<HTMLElement>('.task-panel');
+    if (!panel || reducedMotion() || this.tasksAnimating) { commit(); return; }
+    this.tasksAnimating = true;
+    const from = panel.offsetHeight;
+    const spring = (to: number, done: () => void) => {
+      panel.classList.add('unfolding');
+      panel.style.height = `${from}px`;
+      let finished = false;
+      const s = createSpring(from, (value, velocity) => {
+        panel.style.height = `${value}px`;
+        // Visibly settled: finish now rather than when the spring's tail dies out.
+        if (!finished && Math.abs(value - to) < 1 && Math.abs(velocity) < 40) { finished = true; done(); }
+      }, { stiffness: 340, damping: 26 });
+      s.set(to);
+    };
+    const finish = () => {
+      panel.style.height = '';
+      panel.classList.remove('unfolding');
+      this.tasksAnimating = false;
+    };
+    if (folded) {
+      const heading = panel.querySelector<HTMLElement>('.task-heading');
+      // Measured against the card's own box (offsetTop would be relative to the page here).
+      const to = heading
+        ? heading.getBoundingClientRect().bottom - panel.getBoundingClientRect().top + parseFloat(getComputedStyle(panel).paddingBottom)
+        : from;
+      panel.querySelector('#task-board')?.classList.add('leaving');
+      spring(to, () => { commit(); afterNextRender(finish, { injector: this.injector }); });
+    } else {
+      commit();
+      afterNextRender(() => {
+        panel.style.height = '';
+        const to = panel.offsetHeight;
+        spring(to, finish);
+      }, { injector: this.injector });
+    }
   }
 
   taskSummary(board: TaskBoard) {

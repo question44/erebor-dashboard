@@ -32,7 +32,7 @@ export const GLASS_SELECTOR = [
   '.outlet-panel', '.action.mat-mdc-button', '.notice', '.service.mat-mdc-button', '.device-control',
   '.auth-card', '.user-card', '.fold-more',
   // Header controls sit straight on the wallpaper: glass pills keep them readable.
-  'header .mat-mdc-chip', '.account-button.mat-mdc-button', '.edit-button.mat-mdc-icon-button:not(.active)',
+  '.account-button.mat-mdc-button', '.edit-button.mat-mdc-icon-button:not(.active)',
 ].join(', ');
 // Text drawn as glass (the title): the element's own text is made transparent by CSS.
 export const GLASS_TEXT_SELECTOR = '.glass-text';

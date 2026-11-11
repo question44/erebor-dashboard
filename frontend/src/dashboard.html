@@ -25,7 +25,6 @@
           </span>
         </label>
       }
-      <mat-chip-set aria-label="Connection"><mat-chip>{{ online() ? 'Local & tailnet' : 'Offline' }}</mat-chip></mat-chip-set>
       @if (session.account; as account) {
         <button mat-button class="account-button" [matMenuTriggerFor]="accountMenu" [attr.aria-label]="'Account: ' + account.username">
           <span class="account-content"><erebor-icon name="user" /><span>{{ account.username }}</span></span>
