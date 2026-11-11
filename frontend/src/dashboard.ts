@@ -177,6 +177,9 @@ export class Dashboard {
   readonly busy = signal(false);
   readonly status = signal<Status | null>(null);
   readonly devices = signal<DeviceSnapshot | null>(null);
+  // The device a running command changes: only it shows "Switching…"; the others keep their
+  // last state until the refresh after the command replaces all of them at once.
+  readonly switching = signal<Device | null>(null);
   readonly checkingDevices = signal(false);
   private deviceRequest: AbortController | null = null;
   readonly installPrompt = signal<InstallPrompt | null>(null);
@@ -462,7 +465,9 @@ export class Dashboard {
     if (!controller.signal.aborted) this.nixosResponding.set(confirmed);
   }
 
-  async refreshDevices() {
+  /** force: replace a poll already in flight (after a command, its answer may predate the change). */
+  async refreshDevices(force = false) {
+    if (force) { this.deviceRequest?.abort(); this.deviceRequest = null; }
     if (!this.actions.length || this.deviceRequest || !this.online() || document.hidden || this.busy()) return;
     const controller = new AbortController();
     this.deviceRequest = controller;
@@ -488,6 +493,7 @@ export class Dashboard {
 
   deviceLabel(device: Device) {
     if (!this.online()) return 'Offline';
+    if (this.switching() === device) return 'Switching…';
     const state = this.devices()?.[device]?.state;
     if (!state) return this.checkingDevices() ? 'Checking…' : 'Unknown';
     return { on: 'On', off: 'Off', mixed: 'Mixed', dp: 'DP-1', hdmi: 'HDMI', both: 'Both', none: 'None',
@@ -502,6 +508,7 @@ export class Dashboard {
 
   deviceDetail(device: Device) {
     if (!this.online()) return 'Reconnect to refresh status.';
+    if (this.switching() === device) return 'Waiting for the new state…';
     return this.devices()?.[device]?.detail ?? (this.checkingDevices() ? 'Reading current state…' : 'Status unavailable.');
   }
 
@@ -535,7 +542,9 @@ export class Dashboard {
     if (!this.canExecute(action)) return;
     if (action.id === 'wake') { await this.wake(); return; }
     this.busy.set(true);
-    this.clearDevices();
+    const device = (['display', 'screen', 'ambilight', 'profile'] as Device[]).find(d => action.id.startsWith(`${d}-`));
+    this.switching.set(device ?? null);
+    if (!device) this.clearDevices();
     this.clearPower();
     this.status.set({ severity: 'info', text: 'Sending command…' });
     try {
@@ -555,8 +564,9 @@ export class Dashboard {
         : error instanceof Error ? error.message : 'Command failed' });
     } finally {
       this.busy.set(false);
-      void this.refreshDevices();
       void this.refreshPower();
+      await this.refreshDevices(true);
+      this.switching.set(null);
     }
   }
 

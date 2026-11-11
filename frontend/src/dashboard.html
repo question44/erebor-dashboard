@@ -30,7 +30,7 @@
         <button mat-button class="account-button" [matMenuTriggerFor]="accountMenu" [attr.aria-label]="'Account: ' + account.username">
           <span class="account-content"><erebor-icon name="user" /><span>{{ account.username }}</span></span>
         </button>
-        <mat-menu #accountMenu="matMenu" xPosition="before">
+        <mat-menu #accountMenu="matMenu" xPosition="before" class="glass-menu">
           @if (account.admin) {
             <button mat-menu-item [disabled]="session.cached()" (click)="session.show('users')"><span class="menu-item"><erebor-icon name="users" />Manage users</span></button>
           }
@@ -39,7 +39,7 @@
           <button mat-menu-item [disabled]="session.cached()" (click)="changePassword()"><span class="menu-item"><erebor-icon name="key" />Change password</span></button>
           <button mat-menu-item (click)="session.logout()"><span class="menu-item"><erebor-icon name="logout" />Sign out</span></button>
         </mat-menu>
-        <mat-menu #backgroundMenu="matMenu">
+        <mat-menu #backgroundMenu="matMenu" class="glass-menu">
           @for (b of backgrounds; track b.id) {
             <button mat-menu-item (click)="setBackground(b.id)" [attr.aria-checked]="background() === b.id" role="menuitemradio">
               <span class="menu-item"><erebor-icon [name]="background() === b.id ? 'check' : 'blank'" />{{ b.label }}</span>

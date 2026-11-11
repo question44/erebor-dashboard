@@ -20,7 +20,12 @@ html.glass { background: transparent; }
    only tint it. Keep this selector list in step with sequoia.ts GLASS_SELECTOR. */
 html.sequoia { --glass-fill: 42%; }
 @media (prefers-color-scheme: dark) { html.sequoia { --glass-fill: 55%; } }
-.sequoia-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: -1; pointer-events: none; }
+/* The large viewport height: on phones the canvas already covers what appears when the
+   browser's bars collapse while scrolling (the renderer redraws when its size changes). */
+.sequoia-canvas { position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; height: 100lvh; z-index: -1; pointer-events: none; }
+/* Behind the canvas (overscroll, the first frame): a wallpaper-like colour instead of the page's, and no bounce past the ends. */
+html.sequoia { background: #3d63d4; overscroll-behavior-y: none; }
+@media (prefers-color-scheme: dark) { html.sequoia { background: #241a6e; } }
 /* The glass and its tint (var(--paper) at --glass-fill) are drawn by sequoia.ts. */
 html.sequoia :is(.outlet-panel, .action.mat-mdc-button, .notice, .service.mat-mdc-button, .device-control,
   .auth-card, .user-card, .fold-more, header .mat-mdc-chip, .account-button.mat-mdc-button,
@@ -69,6 +74,13 @@ h2 { font-size: 1.25rem; font-weight: 600; margin: 0 0 16px; }
 .task-counts .overdue dd { color: light-dark(#a56800, #f1c15b); }
 .task-panel a { color: inherit; font-weight: 600; font-variant-numeric: tabular-nums; text-underline-offset: 3px; }
 .task-epics, .task-list { list-style: none; margin: 0; padding: 0; }
+/* One column that may shrink below the longest title (which then ellipsizes) instead of widening the page. */
+.task-epics, .task-list { grid-template-columns: minmax(0, 1fr); }
+/* Phones: the status goes under the title, so long statuses don't squeeze titles to nothing. */
+@media (max-width: 599px) {
+  .task-list li { flex-wrap: wrap; row-gap: 0; }
+  .task-list .task-meta { flex-basis: 100%; }
+}
 .task-epics { margin-top: 20px; display: grid; gap: 12px; }
 .task-epic-label, .task-list li { display: flex; align-items: baseline; gap: 10px; min-width: 0; font-size: .9rem; }
 .task-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -381,4 +393,39 @@ main.busy .device-action:disabled { opacity: 1; cursor: progress; }
 @media (max-width: 599px) {
   .tab-frame { inset: 0 !important; width: auto; height: auto; max-width: none; max-height: none; border-radius: 0; resize: none; transform: none !important; }
   .tab-footer { height: 0; }
+}
+
+/* Liquid glass menus (glass-menu.ts, after liquidglass.dev's <lg-menu>): a light glass body
+   (refracting in Chromium, blurred elsewhere), a spring that unrolls it on open and rolls it back
+   on close (Material removes the panel 200 ms after closing starts), and a hover lens revealing an
+   accent copy of the item. */
+:root { --menu-glass: rgb(255 255 255 / .55); --menu-rim: rgb(255 255 255 / .5); }
+@media (prefers-color-scheme: dark) { :root { --menu-glass: rgb(43 40 51 / .55); --menu-rim: rgb(255 255 255 / .14); } }
+div.mat-mdc-menu-panel.glass-menu {
+  --mat-menu-container-color: transparent;
+  min-width: 220px; overflow: hidden; border-radius: 18px;
+  background: var(--menu-glass);
+  box-shadow: 0 12px 32px rgb(0 0 0 / .18), 0 2px 6px rgb(0 0 0 / .08), inset 0 0 0 1px var(--menu-rim), inset 0 1px 0 var(--menu-rim);
+  transform-origin: top right;
+  animation: glass-menu-open .6s var(--spring) both;
+}
+div.mat-mdc-menu-panel.glass-menu.mat-menu-panel-exit-animation { animation: glass-menu-close .17s cubic-bezier(.4, 0, 1, 1) both; }
+@keyframes glass-menu-open {
+  from { opacity: 0; clip-path: inset(-48px -48px 40% -48px); transform: translateY(-6px) scale(.96); }
+  45% { opacity: 1; }
+  to { opacity: 1; clip-path: inset(-48px); transform: none; }
+}
+@keyframes glass-menu-close {
+  from { opacity: 1; clip-path: inset(-48px); transform: none; }
+  to { opacity: 0; clip-path: inset(-48px -48px 40% -48px); transform: translateY(-4px) scale(.97); }
+}
+.glass-menu .mat-mdc-menu-content { position: relative; padding: 6px 0; }
+.glass-menu .mat-mdc-menu-item { background: transparent !important; }
+.glass-menu .mat-mdc-menu-item .mat-mdc-menu-item-text, .glass-menu .mat-mdc-menu-submenu-icon { color: var(--ink); }
+.glass-menu .mat-mdc-menu-item .mat-mdc-focus-indicator::before, .glass-menu .mat-mdc-menu-item::after { display: none; }
+.glass-menu__copy { position: absolute; inset: 0; z-index: 2; pointer-events: none; background: var(--primary); color: var(--page); }
+.glass-menu__copy-item { position: absolute; left: 0; right: 0; display: flex; align-items: center; }
+.glass-menu__copy-item .mat-mdc-menu-item-text { color: inherit; }
+@media (prefers-reduced-motion: reduce) {
+  div.mat-mdc-menu-panel.glass-menu, div.mat-mdc-menu-panel.glass-menu.mat-menu-panel-exit-animation { animation-duration: .01s; }
 }

@@ -434,6 +434,8 @@ export class SequoiaRenderer {
   private readonly onChange = () => this.schedule();
   // Cards move without a resize or scroll: section folds, drags, hover and spring animations.
   private readonly observer = new MutationObserver(this.onChange);
+  // Its CSS size changes without a window resize on phones (100lvh as the browser bars move).
+  private readonly sizeObserver = new ResizeObserver(() => this.onResize());
 
   constructor(private readonly canvas: HTMLCanvasElement, data: SequoiaData, private readonly still: () => boolean) {
     const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, depth: false, premultipliedAlpha: true });
@@ -490,6 +492,8 @@ export class SequoiaRenderer {
     document.addEventListener('pointermove', this.onPointer, { passive: true });
     document.addEventListener('pointerleave', this.onPointer, { passive: true });
     this.observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'style'] });
+    this.sizeObserver.observe(canvas);
+    visualViewport?.addEventListener('resize', this.onResize);
     this.schedule();
   }
 
@@ -504,6 +508,8 @@ export class SequoiaRenderer {
     document.removeEventListener('pointermove', this.onPointer);
     document.removeEventListener('pointerleave', this.onPointer);
     this.observer.disconnect();
+    this.sizeObserver.disconnect();
+    visualViewport?.removeEventListener('resize', this.onResize);
     this.gl.getExtension('WEBGL_lose_context')?.loseContext();
   }
 
