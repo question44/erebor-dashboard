@@ -25,10 +25,17 @@
           @if (account.admin) {
             <button mat-menu-item [disabled]="session.cached()" (click)="session.show('users')"><span class="menu-item"><erebor-icon name="users" />Manage users</span></button>
           }
-          <button mat-menu-item (click)="setGlass(!glass())" [attr.aria-pressed]="glass()"><span class="menu-item"><erebor-icon [name]="glass() ? 'check' : 'eye'" />Transparent background</span></button>
+          <button mat-menu-item [matMenuTriggerFor]="backgroundMenu"><span class="menu-item"><erebor-icon name="eye" />Background</span></button>
           <button mat-menu-item [disabled]="!canArrange()" (click)="resetLayout()"><span class="menu-item"><erebor-icon name="reset" />Reset layout</span></button>
           <button mat-menu-item [disabled]="session.cached()" (click)="changePassword()"><span class="menu-item"><erebor-icon name="key" />Change password</span></button>
           <button mat-menu-item (click)="session.logout()"><span class="menu-item"><erebor-icon name="logout" />Sign out</span></button>
+        </mat-menu>
+        <mat-menu #backgroundMenu="matMenu">
+          @for (b of backgrounds; track b.id) {
+            <button mat-menu-item (click)="setBackground(b.id)" [attr.aria-checked]="background() === b.id" role="menuitemradio">
+              <span class="menu-item"><erebor-icon [name]="background() === b.id ? 'check' : 'blank'" />{{ b.label }}</span>
+            </button>
+          }
         </mat-menu>
       }
       @if (cardIds.length || services.length) {

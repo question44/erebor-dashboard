@@ -28,6 +28,7 @@ export interface Settings {
   layout?: Layout;
   /** Administrators only: a read-only task board is available from the API. */
   taskBoard?: boolean;
+  sequoia?: boolean;
 }
 export type TaskStatus = 'ACTIVE' | 'OPEN' | 'REVIEW';
 export interface TaskItem {
@@ -74,6 +75,7 @@ export const paths: Record<string, string> = {
   'eye-off': 'M3 3l18 18 M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4.1 M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a9.8 9.8 0 0 0 5.4-1.6 M9.9 9.9a3 3 0 0 0 4.2 4.2',
   reset: 'M3 12a9 9 0 1 0 3-6.7L3 8 M3 3v5h5',
   check: 'M5 12.5l4.5 4.5L19 7',
+  blank: '',
   chevron: 'M6 9l6 6 6-6',
   'fold-grip': 'M8 5l4-3 4 3 M8 19l4 3 4-3 M4 12h16',
   maximize: 'M4 4h16v16H4z',

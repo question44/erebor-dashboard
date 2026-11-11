@@ -17,7 +17,7 @@ from urllib.request import Request as URLRequest, urlopen
 from fastapi import Cookie, Depends, FastAPI, Header, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.exceptions import HTTPException
@@ -49,6 +49,10 @@ POWER_PROFILES = ("org.freedesktop.UPower.PowerProfiles", "/org/freedesktop/UPow
 # (argv as a JSON array) and the URL prefix its repository-relative paths join.
 TASKS_COMMAND = json.loads(os.environ.get("DASHBOARD_TASKS_COMMAND") or "null")
 TASKS_LINK_BASE = os.environ.get("DASHBOARD_TASKS_LINK_BASE", "")
+# Optional data file for the Sequoia page background (frontend/src/sequoia.ts),
+# kept outside the package because it is extracted from macOS; served to signed-in users only.
+SEQUOIA_DATA = os.environ.get("DASHBOARD_SEQUOIA_DATA") or None
+SEQUOIA_PATH = "/api/control/sequoia"
 TASK_PATH = re.compile(r"^[A-Za-z0-9_-]+(?:/[A-Za-z0-9_.-]+)*\.md$")
 TASK_STATUSES = ("ACTIVE", "OPEN", "REVIEW")
 
@@ -398,7 +402,10 @@ class DashboardBoundary:
 
         async def no_store(message: Message):
             if message["type"] == "http.response.start":
-                MutableHeaders(scope=message)["Cache-Control"] = "no-store"
+                headers = MutableHeaders(scope=message)
+                # The Sequoia data is large and static: the endpoint sets a private cache lifetime.
+                if scope["path"] != SEQUOIA_PATH or "cache-control" not in headers:
+                    headers["Cache-Control"] = "no-store"
             await send(message)
 
         if scope["method"] in {"POST", "PUT", "PATCH", "DELETE"}:
@@ -586,6 +593,8 @@ def read_config(user: User):
             "layout": store().layout(user["username"])}
     if user["admin"] and TASKS_COMMAND:
         view["taskBoard"] = True
+    if SEQUOIA_DATA and Path(SEQUOIA_DATA).is_file():
+        view["sequoia"] = True
     return view
 
 
@@ -638,6 +647,15 @@ def read_tasks(admin: Admin):
     except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError, AttributeError) as exc:
         print(f"Task board failed: {exc}", flush=True)
         return JSONResponse({"error": "Could not read the task board"}, 503)
+
+
+@app.get(SEQUOIA_PATH)
+def read_sequoia(user: User):
+    path = Path(SEQUOIA_DATA) if SEQUOIA_DATA else None
+    if path is None or not path.is_file():
+        raise HTTPException(404, "No Sequoia data is configured")
+    return FileResponse(path, media_type="application/json",
+                        headers={"Cache-Control": "private, max-age=86400"})
 
 
 @app.get("/api/control/users")

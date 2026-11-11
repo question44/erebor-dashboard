@@ -69,6 +69,15 @@ in
           description = "URL prefix for the board's repository-relative task paths; empty means no links.";
         };
       };
+      sequoiaData = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "/home/alice/.local/share/sequoia/web.json";
+        description = ''
+          Path (read at request time, not copied into the store) of the Sequoia wallpaper data
+          for the "Sequoia" page background, served to signed-in users. Null hides it.
+        '';
+      };
       extraPackages = lib.mkOption {
         type = lib.types.listOf lib.types.package;
         default = [ ];
@@ -93,6 +102,8 @@ in
       } // lib.optionalAttrs (cfg.control.tasks.command != null) {
         DASHBOARD_TASKS_COMMAND = builtins.toJSON cfg.control.tasks.command;
         DASHBOARD_TASKS_LINK_BASE = cfg.control.tasks.linkBase;
+      } // lib.optionalAttrs (cfg.control.sequoiaData != null) {
+        DASHBOARD_SEQUOIA_DATA = cfg.control.sequoiaData;
       } // lib.optionalAttrs (cfg.control.wledUrl != null) {
         DASHBOARD_WLED_URL = cfg.control.wledUrl;
       };

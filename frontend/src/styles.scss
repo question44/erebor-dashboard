@@ -15,6 +15,16 @@ body { margin: 0; }
 /* Transparent background (per device, glass.ts): no page colour at all, so
    the window behind shows through between the cards; cards keep theirs. */
 html.glass { background: transparent; }
+/* Sequoia background (background.ts, sequoia.ts): a fixed WebGL canvas behind
+   everything draws the wallpaper and liquid glass under each card, so the cards
+   only tint it. Keep this selector list in step with sequoia.ts GLASS_SELECTOR. */
+html.sequoia { --glass-fill: 42%; }
+@media (prefers-color-scheme: dark) { html.sequoia { --glass-fill: 55%; } }
+.sequoia-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: -1; pointer-events: none; }
+html.sequoia :is(.outlet-panel, .action.mat-mdc-button, .notice, .service.mat-mdc-button, .device-control,
+  .auth-card, .user-card, .fold-more) {
+  background: color-mix(in srgb, var(--paper) var(--glass-fill), transparent);
+}
 main { max-width: 900px; margin: auto; padding: 48px 24px; }
 header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .host-heading { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; min-width: 0; }
