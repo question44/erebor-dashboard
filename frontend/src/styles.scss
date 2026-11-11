@@ -32,11 +32,7 @@ html.sequoia :is(.action.mat-mdc-button, .service.mat-mdc-button, .device-contro
   transition: transform .35s var(--spring);
 }
 html.sequoia main:not(.editing) :is(.action.mat-mdc-button, .service.mat-mdc-button, .device-control):hover { transform: translateY(-2px); }
-/* Glass Show hidden switch: track and handle are drawn by sequoia.ts. */
-html.sequoia .show-hidden :is(.mdc-switch__track, .mdc-switch__handle)::before,
-html.sequoia .show-hidden :is(.mdc-switch__track, .mdc-switch__handle)::after { background: transparent !important; border-color: transparent !important; }
-html.sequoia .show-hidden .mdc-switch__track { border: 0 !important; }
-html.sequoia .show-hidden .mdc-switch__shadow { display: none; }
+
 /* The title is drawn as glass text by sequoia.ts; the DOM text stays for layout and selection. */
 html.sequoia .glass-text { color: transparent; }
 /* Text straight on the wallpaper: a soft halo in the page colour. */
@@ -123,12 +119,37 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--primary); outli
 .device-control { grid-column: span 2; display: flex; flex-direction: column; padding: 16px; border-radius: 20px; background: var(--paper); min-width: 0; }
 .state-summary { flex: 1; }
 .device-actions { position: relative; display: flex; gap: 8px; margin-top: 16px; }
-/* Sliding thumb under the current option (toggles.ts); glass in Sequoia mode. */
-.toggle-thumb { position: absolute; left: 0; top: 0; border-radius: 12px; background: var(--icon-bg); pointer-events: none; opacity: 0; transform-origin: center; }
-.toggle-thumb.shown { opacity: 1; }
-.device-actions:has(> .toggle-thumb.shown) .device-action.current { background: transparent; }
+/* Liquid glass controls (toggles.ts, vendor/liquid-glass.js): the lens bends a copy of the
+   row's labels in the accent colour on a light surface, clipped to the current option. */
+:root { --seg-surface: #ffffff; --track-off: #d1d5db; }
+@media (prefers-color-scheme: dark) { :root { --seg-surface: #4a4458; --track-off: #4a4752; } }
 .device-action.mat-mdc-button { position: relative; z-index: 1; }
-html.sequoia .toggle-thumb { background: transparent; }
+.device-actions.has-lens .device-action.current { background: transparent; }
+/* The segmented track (liquidglass.dev: 4 px padding and gap on a soft track). */
+.device-actions.has-lens { padding: 4px; gap: 4px; border-radius: 16px; background: color-mix(in srgb, var(--track-off) 45%, transparent); }
+.seg-copy { position: absolute; inset: 0; z-index: 2; pointer-events: none; background: var(--seg-surface); }
+.seg-copy__option { position: absolute; display: grid; place-items: center; padding: 0 8px; text-align: center;
+  color: var(--primary); font-size: .875rem; font-weight: 600; letter-spacing: .006em; line-height: 1.2; }
+.seg-shadow { position: absolute; left: 0; top: 0; z-index: 1; pointer-events: none; box-shadow: 0 1px 3px rgb(0 0 0 / .12), 0 2px 8px rgb(0 0 0 / .08); }
+.device-actions:not(.has-lens) :is(.seg-copy, .seg-shadow) { display: none; }
+/* Glass switch (liquidglass.dev <lg-switch>): 64 x 28 track; the knob turns into a lens while pressed. */
+.glass-switch { display: inline-flex; align-items: center; gap: 10px; font-size: .875rem; cursor: pointer; user-select: none; }
+.glass-switch.disabled { cursor: default; opacity: .5; }
+.gs-control { --p: 0; position: relative; flex: none; width: 64px; height: 28px; }
+.gs-control input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: inherit; z-index: 4; }
+.gs-track, .gs-fill { border-radius: 14px; background: color-mix(in srgb, var(--track-off), var(--primary) calc(var(--p) * 100%)); }
+.gs-track { position: absolute; inset: 0; }
+.gs-refract { position: absolute; left: -16px; top: -16px; width: 96px; height: 60px; z-index: 1; pointer-events: none; background: var(--seg-surface); }
+.gs-fill { position: absolute; left: 16px; top: 16px; width: 64px; height: 28px; }
+.gs-thumb, .gs-shadow { position: absolute; left: 0; top: 0; pointer-events: none; }
+.gs-thumb { z-index: 3; background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / .18); }
+.gs-shadow { z-index: 2; opacity: 0; box-shadow: 0 4px 12px rgb(0 0 0 / .14); }
+.gs-control input:focus-visible ~ .gs-thumb { outline: 2px solid var(--primary); outline-offset: 2px; }
+/* Press feedback on the glass buttons, springing back. */
+:is(.action.mat-mdc-button, .service.mat-mdc-button, .account-button.mat-mdc-button, .edit-button.mat-mdc-icon-button,
+  .fold-more, .device-action.mat-mdc-button) { transition: transform .35s var(--spring), scale .35s var(--spring); }
+:is(.action.mat-mdc-button, .service.mat-mdc-button, .account-button.mat-mdc-button, .edit-button.mat-mdc-icon-button,
+  .fold-more, .device-action.mat-mdc-button):active:not(:disabled) { scale: .96; transition-duration: .08s; }
 .device-action.mat-mdc-button { flex: 1; min-height: 44px; border-radius: 12px; @include mat.button-overrides((text-label-text-color: var(--primary))); }
 .device-action.current { background: var(--icon-bg); }
 .device-action.off { @include mat.button-overrides((text-label-text-color: var(--secondary))); }

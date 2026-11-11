@@ -1,7 +1,6 @@
 import { Component, DestroyRef, ElementRef, HostListener, TemplateRef, ViewChild, computed, effect, inject, signal } from '@angular/core';
 import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
-import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { A11yModule } from '@angular/cdk/a11y';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
@@ -60,7 +59,7 @@ function readLocalLayout(): Layout {
 
 @Component({
   selector: 'erebor-dashboard',
-  imports: [Icon, A11yModule, MatButtonModule, MatDialogModule, MatChipsModule, MatMenuModule, MatSlideToggleModule,
+  imports: [Icon, A11yModule, MatButtonModule, MatDialogModule, MatChipsModule, MatMenuModule,
     CdkDropList, CdkDrag, CdkDragHandle],
   templateUrl: './dashboard.html',
 })

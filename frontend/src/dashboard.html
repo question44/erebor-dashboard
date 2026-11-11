@@ -13,8 +13,17 @@
     </div>
     <div class="header-tools">
       @if (!editing() && (hiddenCount() || layout().showHidden)) {
-        <mat-slide-toggle class="show-hidden" [checked]="layout().showHidden" [disabled]="!canArrange()"
-          (change)="setShowHidden($event.checked)">Show hidden ({{ hiddenCount() }})</mat-slide-toggle>
+        <label class="glass-switch show-hidden" [class.disabled]="!canArrange()">
+          <span>Show hidden ({{ hiddenCount() }})</span>
+          <span class="gs-control">
+            <input type="checkbox" role="switch" [checked]="layout().showHidden" [disabled]="!canArrange()"
+              (change)="setShowHidden($any($event.target).checked)">
+            <span class="gs-track" aria-hidden="true"></span>
+            <span class="gs-refract" aria-hidden="true"><span class="gs-fill"></span></span>
+            <span class="gs-shadow" aria-hidden="true"></span>
+            <span class="gs-thumb" aria-hidden="true"></span>
+          </span>
+        </label>
       }
       <mat-chip-set aria-label="Connection"><mat-chip>{{ online() ? 'Local & tailnet' : 'Offline' }}</mat-chip></mat-chip-set>
       @if (session.account; as account) {

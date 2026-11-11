@@ -34,10 +34,6 @@ export const GLASS_SELECTOR = [
   // Header controls sit straight on the wallpaper: glass pills keep them readable.
   'header .mat-mdc-chip', '.account-button.mat-mdc-button', '.edit-button.mat-mdc-icon-button:not(.active)',
 ].join(', ');
-// Glass drawn on top of the cards: toggle thumbs (toggles.ts) and the Show hidden switch.
-// Pill-shaped; their CSS paint is removed in Sequoia mode (styles.scss).
-export const GLASS_THUMB_SELECTOR = '.toggle-thumb.shown, .show-hidden .mdc-switch__handle';
-export const GLASS_TRACK_SELECTOR = '.show-hidden .mdc-switch__track';
 // Text drawn as glass (the title): the element's own text is made transparent by CSS.
 export const GLASS_TEXT_SELECTOR = '.glass-text';
 // Folded sections clip their cards (styles.scss .fold-clip.clipped, overflow-clip-margin 6px).
@@ -737,19 +733,9 @@ export class SequoiaRenderer {
     const theme = getComputedStyle(document.documentElement);
     const fill = (parseFloat(theme.getPropertyValue('--glass-fill')) || 42) / 100;
     const paper = parseColor(theme.getPropertyValue('--paper'), [0.95, 0.93, 0.97]);
-    const primary = parseColor(theme.getPropertyValue('--primary'), [0.4, 0.31, 0.64]);
-    const dark = this.dark.matches;
     // Cards: tinted by the page's paper colour, as their CSS background was.
     for (const el of document.querySelectorAll(GLASS_SELECTOR)) {
       this.drawGlass(el, k, dt, [...paper, fill], 0, 1, true, false);
-    }
-    // On top of the cards: the switch track, then thumbs and the switch handle.
-    for (const el of document.querySelectorAll(GLASS_TRACK_SELECTOR)) {
-      const on = !!el.closest('.mdc-switch--selected, .mdc-switch--checked');
-      this.drawGlass(el, k, dt, on ? [...primary, dark ? 0.55 : 0.5] : [...paper, fill * 0.6], 0.04, 1.5, false, true);
-    }
-    for (const el of document.querySelectorAll(GLASS_THUMB_SELECTOR)) {
-      this.drawGlass(el, k, dt, [...paper, dark ? 0.42 : 0.5], dark ? 0.04 : 0.12, 4, false, true);
     }
     gl.disable(gl.SCISSOR_TEST);
     this.drawText(k);
