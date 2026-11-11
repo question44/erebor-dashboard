@@ -26,6 +26,7 @@ interface Row {
   x: number; y: number; w: number; h: number; vx: number; vy: number;
   xs: Spring; ys: Spring; ws: Spring; hs: Spring;
   pending: HTMLElement | null; pendingUntil: number; placed: boolean; radius: number;
+  last: HTMLElement | null; // the option the lens last sat on
 }
 const rows = new Map<HTMLElement, Row>();
 
@@ -36,7 +37,7 @@ function addRow(row: HTMLElement): Row {
   shadow.className = 'seg-shadow'; shadow.setAttribute('aria-hidden', 'true');
   row.append(shadow, copy);
   const r = { row, copy, shadow, glass: null, spans: new Map(), x: 0, y: 0, w: 0, h: 0, vx: 0, vy: 0,
-    pending: null, pendingUntil: 0, placed: false, radius: 12 } as unknown as Row;
+    pending: null, pendingUntil: 0, placed: false, radius: 12, last: null } as unknown as Row;
   const opts = { stiffness: 380, damping: 28 };
   r.xs = createSpring(0, (v, vel) => { r.x = v; r.vx = vel; renderRow(r); }, opts);
   r.ys = createSpring(0, (v, vel) => { r.y = v; r.vy = vel; renderRow(r); }, opts);
@@ -62,10 +63,17 @@ function layoutCopy(r: Row) {
   if (first) r.radius = parseFloat(getComputedStyle(first).borderTopLeftRadius) || 12;
 }
 
+// While a command runs the dashboard clears every device's state until fresh
+// status arrives, so no option is current for a moment: the lens then stays
+// where it was (no flicker on the other rows, and a real slide once the new
+// state lands) instead of disappearing.
 function targetOf(r: Row): HTMLElement | null {
   const current = r.row.querySelector<HTMLElement>(CURRENT);
   if (r.pending && (performance.now() > r.pendingUntil || r.pending === current || !r.pending.isConnected)) r.pending = null;
-  return r.pending ?? current;
+  if (r.last && !r.last.isConnected) r.last = null;
+  const target = r.pending ?? current ?? r.last;
+  if (target) r.last = target;
+  return target;
 }
 
 function moveRow(r: Row, immediate = false) {

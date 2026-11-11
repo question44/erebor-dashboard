@@ -154,6 +154,8 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--primary); outli
 .device-action.current { background: var(--icon-bg); }
 .device-action.off { @include mat.button-overrides((text-label-text-color: var(--secondary))); }
 .device-action:disabled { opacity: .4; }
+/* While a command is in flight every option is briefly disabled: keep them as they are, so the rows don't flash. */
+main.busy .device-action:disabled { opacity: 1; cursor: progress; }
 .state-heading { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .state-heading erebor-icon { color: var(--primary); }
 .state-heading strong { margin-left: auto; font-size: .875rem; }
