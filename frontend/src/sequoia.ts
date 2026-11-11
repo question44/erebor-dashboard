@@ -34,6 +34,10 @@ export const GLASS_SELECTOR = [
   // Header controls sit straight on the wallpaper: glass pills keep them readable.
   'header .mat-mdc-chip', '.account-button.mat-mdc-button', '.edit-button.mat-mdc-icon-button:not(.active)',
 ].join(', ');
+// Glass drawn on top of the cards: toggle thumbs (toggles.ts) and the Show hidden switch.
+// Pill-shaped; their CSS paint is removed in Sequoia mode (styles.scss).
+export const GLASS_THUMB_SELECTOR = '.toggle-thumb.shown, .show-hidden .mdc-switch__handle';
+export const GLASS_TRACK_SELECTOR = '.show-hidden .mdc-switch__track';
 // Text drawn as glass (the title): the element's own text is made transparent by CSS.
 export const GLASS_TEXT_SELECTOR = '.glass-text';
 // Folded sections clip their cards (styles.scss .fold-clip.clipped, overflow-clip-margin 6px).
@@ -215,6 +219,9 @@ const GLASS_VS = `#version 300 es
 const GLASS_FS = `#version 300 es
   precision highp float;
   uniform sampler2D uBlur; uniform vec2 uScreen; uniform vec4 uRect; uniform vec4 uRadius; uniform float uDpr;
+  // Per element: tint over the glass (rgb, amount), white lift, specular gain,
+  // and hover (0..1) with the pointer position for a highlight that follows it.
+  uniform vec4 uTint; uniform float uLift, uSpec, uHover; uniform vec2 uPointer;
   out vec4 o;
   const float REFRACTION = 47.0;
   const float BEZEL = 61.0;
@@ -276,14 +283,20 @@ const GLASS_FS = `#version 300 es
     float shade = 0.12 + 0.88 * (facing > 0.0 ? facing : -0.4 * facing);
     float crisp = max(0.0, 1.0 - s / (SPECULAR_W * uDpr));
     float glow = max(0.0, 1.0 - s / (SPECULAR_W * 5.0 * uDpr));
-    col += min(1.0, SPECULAR * (crisp * crisp + 0.3 * glow * glow) * shade);
+    col = mix(col, vec3(1.0), uLift);
+    col = mix(col, uTint.rgb, uTint.a);
+    float spec = SPECULAR * uSpec * (1.0 + uHover);
+    col += min(1.0, spec * (crisp * crisp + 0.3 * glow * glow) * shade);
     float ra = radians(RIM_LIGHT);
     float edge = max(0.0, 1.0 - s / (RIM_W * uDpr));
-    float rim = RIM_OPACITY * edge * edge * abs(dot(n, vec2(cos(ra), sin(ra))));
+    float rim = RIM_OPACITY * edge * edge * abs(dot(n, vec2(cos(ra), sin(ra)))) * (1.0 + 0.8 * uHover);
     float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
     vec3 vivid = max(mix(vec3(lum), col, RIM_SATURATION), 0.0);
-    col = mix(col, vivid, rim);
-    col = mix(col, vec3(1.0), rim * RIM_WHITE);
+    col = mix(col, vivid, min(rim, 1.0));
+    col = mix(col, vec3(1.0), min(rim, 1.0) * RIM_WHITE);
+    // Hover: a soft light under the pointer.
+    vec2 dp = (frag - uPointer) / (150.0 * uDpr);
+    col += uHover * 0.10 * exp(-dot(dp, dp));
     o = vec4(col * cover, cover);
   }`;
 
@@ -304,18 +317,17 @@ const TEXT_FS = `#version 300 es
   precision highp float;
   uniform sampler2D uBlur, uMask; uniform vec2 uScreen; uniform vec4 uRect; uniform float uDpr, uMaxD, uShadow, uLift;
   in vec2 vUv; out vec4 o;
-  const float REFRACTION = 9.0;  // logical px: strokes are thin, so a shallow lens
-  const float BEZEL = 6.0;
-  const float CURVATURE = 4.8;
-  const float IOR = 2.12;
-  const float CHROMA = 0.8;
-  const float SPECULAR = 0.35;
-  const float SPECULAR_W = 1.6;
-  const float LIGHT = 41.0;
-  const float RIM_OPACITY = 0.48;
-  const float RIM_SATURATION = 3.5;
-  const float RIM_W = 2.0;
-  const float RIM_LIGHT = -53.0;
+  // Each stroke is a rounded glass rod: the height comes from the distance to the
+  // edge relative to the stroke's own half-width, so the whole stroke refracts.
+  const float REFRACTION = 16.0; // logical px, capped by the stroke's half-width
+  const float CURVATURE = 2.6;   // rod profile: 2 is circular
+  const float IOR = 1.9;
+  const float CHROMA = 0.6;
+  const float SPECULAR = 0.55;
+  const float LIGHT = -120.0;   // from the upper left, as text is usually lit
+  const float RIM_OPACITY = 0.5;
+  const float RIM_SATURATION = 3.0;
+  const float RIM_W = 1.6;
   float profile(float s) {
     if (s >= 1.0) return 0.0;
     float a = pow(1.0 - s, CURVATURE);
@@ -328,35 +340,42 @@ const TEXT_FS = `#version 300 es
     return texture(uBlur, clamp(uv, vec2(0.0), vec2(1.0))).rgb;
   }
   float sdAt(vec2 uv) { vec3 m = texture(uMask, uv).rgb; return (m.b - m.g) * uMaxD; }
+  float insideAt(vec2 uv) { return texture(uMask, uv).g * uMaxD; }
   void main() {
     vec2 texel = 1.0 / vec2(textureSize(uMask, 0));
     vec3 m = texture(uMask, vUv).rgb;
     float cover = m.r, inside = m.g * uMaxD;
-    // Soft shadow below the letters (offset down), so glass text reads on bright skies.
-    float below = texture(uMask, vUv - vec2(0.0, 2.0 * uDpr) * texel).b * uMaxD;
-    float shadow = uShadow * pow(max(0.0, 1.0 - below / (9.0 * uDpr)), 2.0);
+    // A faint contact shadow just below the letters.
+    float below = texture(uMask, vUv - vec2(0.0, 1.5 * uDpr) * texel).b * uMaxD;
+    float shadow = uShadow * pow(max(0.0, 1.0 - below / (5.0 * uDpr)), 2.0);
     if (cover <= 0.002 && shadow <= 0.002) discard;
     vec2 frag = vec2(gl_FragCoord.x, uScreen.y - gl_FragCoord.y);
     vec2 g = vec2(sdAt(vUv + vec2(texel.x, 0.0)) - sdAt(vUv - vec2(texel.x, 0.0)),
                   sdAt(vUv + vec2(0.0, texel.y)) - sdAt(vUv - vec2(0.0, texel.y)));
-    g.y = -g.y; // mask rows run downwards, frag y too
-    vec2 n = length(g) > 1e-4 ? normalize(g) : vec2(0.0);
-    float s = inside + cover - 0.5;
-    float mprof = profile(max(s, 0.0) / (BEZEL * uDpr));
-    vec2 off = -n * mprof * REFRACTION * uDpr;
+    // The mask's rows run downwards, like frag: g is already in frag coordinates.
+    vec2 n = length(g) > 1e-4 ? normalize(g) : vec2(0.0); // outward
+    vec2 nUv = n * texel;
+    float s = max(inside + cover - 0.5, 0.0);
+    // The stroke's half-width: the inside distance on the ridge, found by stepping inward.
+    float half_ = max(s, 0.5 * uDpr);
+    for (int i = 1; i <= 8; i++) half_ = max(half_, insideAt(vUv - nUv * (half_ * 0.5 + float(i) * 0.6 * uDpr)));
+    float u = clamp(s / half_, 0.0, 1.0);          // 0 at the edge, 1 on the ridge
+    float mprof = profile(u);
+    vec2 off = -n * mprof * min(REFRACTION * uDpr, half_ * 1.4);
     vec3 col = vec3(samplePx(frag + off).r, samplePx(frag + off * (1.0 + CHROMA * 0.5)).g, samplePx(frag + off * (1.0 + CHROMA)).b);
     col = mix(col, vec3(1.0), uLift);
+    // Light: a bright edge on the side facing the light, a darker one opposite.
     float la = radians(LIGHT);
     float facing = dot(n, vec2(cos(la), sin(la)));
-    float shade = 0.12 + 0.88 * (facing > 0.0 ? facing : -0.4 * facing);
-    float crisp = max(0.0, 1.0 - max(s, 0.0) / (SPECULAR_W * uDpr));
-    col += min(1.0, SPECULAR * crisp * crisp * shade);
-    float ra = radians(RIM_LIGHT);
-    float edge = max(0.0, 1.0 - max(s, 0.0) / (RIM_W * uDpr));
-    float rim = RIM_OPACITY * edge * edge * abs(dot(n, vec2(cos(ra), sin(ra))));
+    float edge = pow(1.0 - u, 3.0);
+    col += SPECULAR * edge * max(facing, 0.0);
+    col *= 1.0 - 0.22 * edge * max(-facing, 0.0);
+    // A thin coloured rim (kube.io), and a soft sheen along the ridge.
+    float rimEdge = max(0.0, 1.0 - s / (RIM_W * uDpr));
+    float rim = RIM_OPACITY * rimEdge * rimEdge;
     float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
     col = mix(col, max(mix(vec3(lum), col, RIM_SATURATION), 0.0), rim);
-    // Premultiplied: glass where the glyphs are, shadow around them.
+    col += 0.06 * smoothstep(0.6, 1.0, u);
     float a = cover + shadow * (1.0 - cover);
     o = vec4(col * cover, a);
   }`;
@@ -406,6 +425,11 @@ export class SequoiaRenderer {
   private stopped = false;
   private radii = new WeakMap<Element, number[]>();
   private masks = new WeakMap<Element, TextMask>();
+  private hovers = new WeakMap<Element, number>();
+  private hovering = false;
+  private pointer = { x: -1e4, y: -1e4 };
+  private lastComposite = 0;
+  private readonly onPointer = (e: PointerEvent) => { this.pointer = { x: e.clientX, y: e.clientY }; this.schedule(); };
   private readonly dark = matchMedia('(prefers-color-scheme: dark)');
   private readonly reduced = matchMedia('(prefers-reduced-motion: reduce)');
   private readonly onScheme = () => this.setGradient(this.dark.matches ? DARK_GRADIENT : LIGHT_GRADIENT);
@@ -466,7 +490,9 @@ export class SequoiaRenderer {
     addEventListener('resize', this.onResize);
     addEventListener('scroll', this.onChange, { passive: true, capture: true });
     document.addEventListener('visibilitychange', this.onVisibility);
-    for (const type of ['transitionrun', 'animationstart', 'pointermove']) document.addEventListener(type, this.onChange, { passive: true });
+    for (const type of ['transitionrun', 'animationstart']) document.addEventListener(type, this.onChange, { passive: true });
+    document.addEventListener('pointermove', this.onPointer, { passive: true });
+    document.addEventListener('pointerleave', this.onPointer, { passive: true });
     this.observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'style'] });
     this.schedule();
   }
@@ -478,7 +504,9 @@ export class SequoiaRenderer {
     removeEventListener('resize', this.onResize);
     removeEventListener('scroll', this.onChange, { capture: true });
     document.removeEventListener('visibilitychange', this.onVisibility);
-    for (const type of ['transitionrun', 'animationstart', 'pointermove']) document.removeEventListener(type, this.onChange);
+    for (const type of ['transitionrun', 'animationstart']) document.removeEventListener(type, this.onChange);
+    document.removeEventListener('pointermove', this.onPointer);
+    document.removeEventListener('pointerleave', this.onPointer);
     this.observer.disconnect();
     this.gl.getExtension('WEBGL_lose_context')?.loseContext();
   }
@@ -517,6 +545,7 @@ export class SequoiaRenderer {
     }
     if (this.sceneDirty) { this.renderScene(ms / 1000); this.blur(); this.lastScene = ms; this.sceneDirty = false; }
     this.composite();
+    if (this.hovering) this.idleFrames = 0;
     if (!animated && !fading && ++this.idleFrames > 60) { this.running = false; this.last = null; return; }
     this.frame = requestAnimationFrame(t => this.tick(t));
   }
@@ -700,27 +729,65 @@ export class SequoiaRenderer {
     gl.uniform1i(this.u('glass', 'uBlur'), 0);
     gl.uniform2f(this.u('glass', 'uScreen'), this.width, this.height);
     gl.uniform1f(this.u('glass', 'uDpr'), this.dpr);
-    const uRect = this.u('glass', 'uRect'), uRadius = this.u('glass', 'uRadius');
     const k = this.width / Math.max(this.canvas.clientWidth, 1);
+    gl.uniform2f(this.u('glass', 'uPointer'), this.pointer.x * k, this.pointer.y * k);
+    const now = performance.now(), dt = Math.min((now - this.lastComposite) / 1000, 0.1);
+    this.lastComposite = now;
+    this.hovering = false;
+    const theme = getComputedStyle(document.documentElement);
+    const fill = (parseFloat(theme.getPropertyValue('--glass-fill')) || 42) / 100;
+    const paper = parseColor(theme.getPropertyValue('--paper'), [0.95, 0.93, 0.97]);
+    const primary = parseColor(theme.getPropertyValue('--primary'), [0.4, 0.31, 0.64]);
+    const dark = this.dark.matches;
+    // Cards: tinted by the page's paper colour, as their CSS background was.
     for (const el of document.querySelectorAll(GLASS_SELECTOR)) {
-      const r = el.getBoundingClientRect();
-      if (r.width < 1 || r.height < 1 || r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth) continue;
-      if (!this.clip(el, r, k)) continue;
-      let radii = this.radii.get(el);
-      if (!radii) {
-        const cs = getComputedStyle(el);
-        radii = [cs.borderTopLeftRadius, cs.borderTopRightRadius, cs.borderBottomRightRadius, cs.borderBottomLeftRadius]
-          .map(v => parseFloat(v) || 0);
-        this.radii.set(el, radii);
-      }
-      gl.uniform4f(uRect, r.left * k, r.top * k, r.width * k, r.height * k);
-      gl.uniform4f(uRadius, radii[0] * k, radii[1] * k, radii[2] * k, radii[3] * k);
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      this.drawGlass(el, k, dt, [...paper, fill], 0, 1, true, false);
+    }
+    // On top of the cards: the switch track, then thumbs and the switch handle.
+    for (const el of document.querySelectorAll(GLASS_TRACK_SELECTOR)) {
+      const on = !!el.closest('.mdc-switch--selected, .mdc-switch--checked');
+      this.drawGlass(el, k, dt, on ? [...primary, dark ? 0.55 : 0.5] : [...paper, fill * 0.6], 0.04, 1.5, false, true);
+    }
+    for (const el of document.querySelectorAll(GLASS_THUMB_SELECTOR)) {
+      this.drawGlass(el, k, dt, [...paper, dark ? 0.42 : 0.5], dark ? 0.04 : 0.12, 4, false, true);
     }
     gl.disable(gl.SCISSOR_TEST);
     this.drawText(k);
     gl.disable(gl.BLEND);
     gl.bindVertexArray(null);
+  }
+
+  /** One glass shape at el's rectangle (transforms included); pills use half the short side as radius. */
+  private drawGlass(el: Element, k: number, dt: number, tint: number[], lift: number, spec: number, hover: boolean, pill: boolean) {
+    const gl = this.gl;
+    const r = el.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1 || r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth) return;
+    if (!this.clip(el, r, k)) return;
+    let radii = pill ? undefined : this.radii.get(el);
+    if (pill) {
+      const rr = Math.min(r.width, r.height) / 2; radii = [rr, rr, rr, rr];
+    } else if (!radii) {
+      const cs = getComputedStyle(el);
+      radii = [cs.borderTopLeftRadius, cs.borderTopRightRadius, cs.borderBottomRightRadius, cs.borderBottomLeftRadius]
+        .map(v => parseFloat(v) || 0);
+      this.radii.set(el, radii);
+    }
+    let h = 0;
+    if (hover) {
+      const want = el.matches(':hover') && !el.matches(':disabled') ? 1 : 0;
+      h = this.hovers.get(el) ?? 0;
+      h += (want - h) * Math.min(1, dt * 9);
+      if (Math.abs(want - h) < 0.01) h = want; else this.hovering = true;
+      if (want) this.hovering = true;
+      this.hovers.set(el, h);
+    }
+    gl.uniform4f(this.u('glass', 'uRect'), r.left * k, r.top * k, r.width * k, r.height * k);
+    gl.uniform4f(this.u('glass', 'uRadius'), radii[0] * k, radii[1] * k, radii[2] * k, radii[3] * k);
+    gl.uniform4f(this.u('glass', 'uTint'), tint[0], tint[1], tint[2], tint[3]);
+    gl.uniform1f(this.u('glass', 'uLift'), lift);
+    gl.uniform1f(this.u('glass', 'uSpec'), spec);
+    gl.uniform1f(this.u('glass', 'uHover'), h);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
   /** Scissor to the folded section around el; false when el is clipped away or hidden. */
@@ -750,8 +817,8 @@ export class SequoiaRenderer {
     gl.uniform2f(this.u('text', 'uScreen'), this.width, this.height);
     gl.uniform1f(this.u('text', 'uDpr'), this.dpr);
     gl.uniform1f(this.u('text', 'uMaxD'), TEXT_MAXD * this.dpr);
-    gl.uniform1f(this.u('text', 'uShadow'), dark ? 0.5 : 0.3);
-    gl.uniform1f(this.u('text', 'uLift'), dark ? 0.1 : 0.18);
+    gl.uniform1f(this.u('text', 'uShadow'), dark ? 0.18 : 0.1);
+    gl.uniform1f(this.u('text', 'uLift'), dark ? 0.2 : 0.14);
     for (const el of items) {
       const r = el.getBoundingClientRect();
       if (r.width < 1 || r.height < 1 || r.bottom < 0 || r.top > innerHeight) continue;
@@ -812,6 +879,15 @@ export class SequoiaRenderer {
     this.masks.set(el, mask);
     return mask;
   }
+}
+
+/** A CSS hex colour (#rgb or #rrggbb) as linear-free 0..1 sRGB components. */
+function parseColor(value: string, fallback: number[]): number[] {
+  const v = value.trim();
+  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(v);
+  if (!m) return fallback;
+  const hex = m[1].length === 3 ? m[1].split('').map(c => c + c).join('') : m[1];
+  return [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
 }
 
 /** Loads Apple's scene data from the control API (cached by the browser for a day). */

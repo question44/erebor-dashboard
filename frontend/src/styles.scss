@@ -21,11 +21,22 @@ html.glass { background: transparent; }
 html.sequoia { --glass-fill: 42%; }
 @media (prefers-color-scheme: dark) { html.sequoia { --glass-fill: 55%; } }
 .sequoia-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: -1; pointer-events: none; }
+/* The glass and its tint (var(--paper) at --glass-fill) are drawn by sequoia.ts. */
 html.sequoia :is(.outlet-panel, .action.mat-mdc-button, .notice, .service.mat-mdc-button, .device-control,
   .auth-card, .user-card, .fold-more, header .mat-mdc-chip, .account-button.mat-mdc-button,
   .edit-button.mat-mdc-icon-button:not(.active)) {
-  background: color-mix(in srgb, var(--paper) var(--glass-fill), transparent);
+  background: transparent;
 }
+/* Hover: the glass lights up under the pointer (sequoia.ts) and the card lifts a little. */
+html.sequoia :is(.action.mat-mdc-button, .service.mat-mdc-button, .device-control) {
+  transition: transform .35s var(--spring);
+}
+html.sequoia main:not(.editing) :is(.action.mat-mdc-button, .service.mat-mdc-button, .device-control):hover { transform: translateY(-2px); }
+/* Glass Show hidden switch: track and handle are drawn by sequoia.ts. */
+html.sequoia .show-hidden :is(.mdc-switch__track, .mdc-switch__handle)::before,
+html.sequoia .show-hidden :is(.mdc-switch__track, .mdc-switch__handle)::after { background: transparent !important; border-color: transparent !important; }
+html.sequoia .show-hidden .mdc-switch__track { border: 0 !important; }
+html.sequoia .show-hidden .mdc-switch__shadow { display: none; }
 /* The title is drawn as glass text by sequoia.ts; the DOM text stays for layout and selection. */
 html.sequoia .glass-text { color: transparent; }
 /* Text straight on the wallpaper: a soft halo in the page colour. */
@@ -111,7 +122,13 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--primary); outli
 .device-controls { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
 .device-control { grid-column: span 2; display: flex; flex-direction: column; padding: 16px; border-radius: 20px; background: var(--paper); min-width: 0; }
 .state-summary { flex: 1; }
-.device-actions { display: flex; gap: 8px; margin-top: 16px; }
+.device-actions { position: relative; display: flex; gap: 8px; margin-top: 16px; }
+/* Sliding thumb under the current option (toggles.ts); glass in Sequoia mode. */
+.toggle-thumb { position: absolute; left: 0; top: 0; border-radius: 12px; background: var(--icon-bg); pointer-events: none; opacity: 0; transform-origin: center; }
+.toggle-thumb.shown { opacity: 1; }
+.device-actions:has(> .toggle-thumb.shown) .device-action.current { background: transparent; }
+.device-action.mat-mdc-button { position: relative; z-index: 1; }
+html.sequoia .toggle-thumb { background: transparent; }
 .device-action.mat-mdc-button { flex: 1; min-height: 44px; border-radius: 12px; @include mat.button-overrides((text-label-text-color: var(--primary))); }
 .device-action.current { background: var(--icon-bg); }
 .device-action.off { @include mat.button-overrides((text-label-text-color: var(--secondary))); }
