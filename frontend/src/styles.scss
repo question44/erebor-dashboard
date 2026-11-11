@@ -12,6 +12,12 @@ html {
 }
 * { box-sizing: border-box; }
 body { margin: 0; }
+/* Transparent background (per device, glass.ts): the page colour at 50% in
+   light mode and 80% in dark, matching erebor's app opacity; cards keep theirs. */
+html.glass { background: color-mix(in srgb, var(--page) 50%, transparent); }
+@media (prefers-color-scheme: dark) {
+  html.glass { background: color-mix(in srgb, var(--page) 80%, transparent); }
+}
 main { max-width: 900px; margin: auto; padding: 48px 24px; }
 header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .host-heading { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; min-width: 0; }
