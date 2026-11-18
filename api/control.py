@@ -53,6 +53,10 @@ TASKS_LINK_BASE = os.environ.get("DASHBOARD_TASKS_LINK_BASE", "")
 # kept outside the package because it is extracted from macOS; served to signed-in users only.
 SEQUOIA_DATA = os.environ.get("DASHBOARD_SEQUOIA_DATA") or None
 SEQUOIA_PATH = "/api/control/sequoia"
+# Optional desktop-mode state: a JSON file (erebor-modes' state.json) naming the
+# active modes and what each changed. The profile and Ambilight details then say
+# what the mode changed; read on each refresh, missing or invalid means none.
+MODES_STATE = os.environ.get("DASHBOARD_MODES_STATE") or None
 TASK_PATH = re.compile(r"^[A-Za-z0-9_-]+(?:/[A-Za-z0-9_.-]+)*\.md$")
 TASK_STATUSES = ("ACTIVE", "OPEN", "REVIEW")
 
@@ -303,6 +307,32 @@ def power_property(name):
     return result["data"]
 
 
+def modes_state():
+    """The active desktop modes, or None: {"label": ..., "items": {id: {...}}}."""
+    if not MODES_STATE:
+        return None
+    try:
+        state = json.loads(Path(MODES_STATE).read_text())
+        modes, items = state["modes"], state.get("items") or {}
+        if not isinstance(modes, list) or not modes or not isinstance(items, dict):
+            return None
+        labels = state.get("mode_labels") or {}
+        return {"label": str(labels.get(modes[0], modes[0])), "items": items}
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return None
+
+
+def mode_holds(mode, item_id):
+    item = mode["items"].get(item_id) if mode else None
+    return isinstance(item, dict) and item.get("status") in {"applied", "skipped"}
+
+
+def mode_summary(mode):
+    labels = sorted(str(i.get("label")) for i in mode["items"].values()
+                    if isinstance(i, dict) and i.get("status") == "applied")
+    return f"{mode['label']} on: " + (", ".join(labels) if labels else "nothing changed") + "."
+
+
 def profile_status():
     try:
         state = power_property("ActiveProfile")
@@ -311,12 +341,23 @@ def profile_status():
             degraded = power_property("PerformanceDegraded")
             if degraded:
                 detail = f"Performance is limited ({degraded})."
+        mode = modes_state()
+        if mode:
+            detail = f"{detail} {mode_summary(mode)}"
         return ProfileStatus(state=state, detail=detail)
     except (OSError, ValueError, KeyError, AttributeError, subprocess.SubprocessError):
         return ProfileStatus(state="unknown", detail="Power profile status is unavailable.")
 
 
 def ambilight_status():
+    status = device_ambilight_status()
+    mode = modes_state()
+    if mode_holds(mode, "ambilight"):
+        status.detail = f"{status.detail} Dimmed by {mode['label']}."
+    return status
+
+
+def device_ambilight_status():
     try:
         url = os.environ["DASHBOARD_WLED_URL"].rstrip("/") + "/json/si"
         with urlopen(url, timeout=2) as response:

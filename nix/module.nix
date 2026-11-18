@@ -78,6 +78,16 @@ in
           for the "Sequoia" page background, served to signed-in users. Null hides it.
         '';
       };
+      modesState = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "/home/alice/.local/state/erebor-modes/state.json";
+        description = ''
+          Path (read on each refresh) of a desktop-mode state file such as erebor-modes'
+          state.json. The power profile and Ambilight cards then say what the active mode
+          changed. Null leaves them as they are.
+        '';
+      };
       extraPackages = lib.mkOption {
         type = lib.types.listOf lib.types.package;
         default = [ ];
@@ -104,6 +114,8 @@ in
         DASHBOARD_TASKS_LINK_BASE = cfg.control.tasks.linkBase;
       } // lib.optionalAttrs (cfg.control.sequoiaData != null) {
         DASHBOARD_SEQUOIA_DATA = cfg.control.sequoiaData;
+      } // lib.optionalAttrs (cfg.control.modesState != null) {
+        DASHBOARD_MODES_STATE = cfg.control.modesState;
       } // lib.optionalAttrs (cfg.control.wledUrl != null) {
         DASHBOARD_WLED_URL = cfg.control.wledUrl;
       };

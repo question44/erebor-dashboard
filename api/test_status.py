@@ -166,3 +166,45 @@ class StatusEndpoint(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ModesState(unittest.TestCase):
+    STATE = {"modes": ["power-saver"], "mode_labels": {"power-saver": "Power saver"},
+             "items": {"glass": {"label": "Liquid glass off", "status": "applied"},
+                       "ambilight": {"label": "Ambilight dimmed", "status": "applied"},
+                       "gpu": {"label": "GPU power limit 200 W", "status": "failed"}}}
+
+    def with_state(self, state):
+        import tempfile
+        tmp = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+        self.addCleanup(lambda: __import__("os").unlink(tmp.name))
+        tmp.write(state if isinstance(state, str) else json.dumps(state))
+        tmp.close()
+        return patch.object(control, "MODES_STATE", tmp.name)
+
+    @patch.object(control, "power_property", return_value="power-saver")
+    def test_profile_lists_applied_items(self, _prop):
+        with self.with_state(self.STATE):
+            detail = control.profile_status().detail
+        self.assertIn("Power saver on: Ambilight dimmed, Liquid glass off.", detail)
+        self.assertNotIn("GPU", detail)
+
+    @patch.object(control, "power_property", return_value="balanced")
+    def test_no_mode_or_bad_file_keeps_detail(self, _prop):
+        for state in [{"modes": [], "items": {}}, "not json", {"items": {}}]:
+            with self.with_state(state):
+                self.assertEqual(control.profile_status().detail, control.PROFILE_DETAILS["balanced"])
+        with patch.object(control, "MODES_STATE", None):
+            self.assertEqual(control.profile_status().detail, control.PROFILE_DETAILS["balanced"])
+
+    @patch.object(control, "device_ambilight_status")
+    def test_ambilight_says_dimmed(self, device):
+        device.return_value = control.DeviceStatus(state="off", detail="LEDs and Ambilight output are off.")
+        with self.with_state(self.STATE):
+            self.assertEqual(control.ambilight_status().detail,
+                             "LEDs and Ambilight output are off. Dimmed by Power saver.")
+        device.return_value = control.DeviceStatus(state="off", detail="LEDs and Ambilight output are off.")
+        state = json.loads(json.dumps(self.STATE))
+        state["items"]["ambilight"]["status"] = "changed"
+        with self.with_state(state):
+            self.assertEqual(control.ambilight_status().detail, "LEDs and Ambilight output are off.")
