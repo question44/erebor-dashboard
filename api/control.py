@@ -308,7 +308,7 @@ def power_property(name):
 
 
 def modes_state():
-    """The active desktop modes, or None: {"label": ..., "items": {id: {...}}}."""
+    """Active desktop modes, or None: {"modes": {id: {"label", "kind"}}, "items": {id: {...}}}."""
     if not MODES_STATE:
         return None
     try:
@@ -316,21 +316,32 @@ def modes_state():
         modes, items = state["modes"], state.get("items") or {}
         if not isinstance(modes, list) or not modes or not isinstance(items, dict):
             return None
-        labels = state.get("mode_labels") or {}
-        return {"label": str(labels.get(modes[0], modes[0])), "items": items}
+        labels, kinds = state.get("mode_labels") or {}, state.get("mode_kinds") or {}
+        return {"modes": {m: {"label": str(labels.get(m, m)), "kind": kinds.get(m, "profile")} for m in modes},
+                "items": items}
     except (OSError, ValueError, TypeError, KeyError, AttributeError):
         return None
 
 
-def mode_holds(mode, item_id):
-    item = mode["items"].get(item_id) if mode else None
-    return isinstance(item, dict) and item.get("status") in {"applied", "skipped"}
+def mode_holding(state, item_id):
+    """Label of the mode that covers an item (applied or skipped), or None."""
+    item = state["items"].get(item_id) if state else None
+    if not isinstance(item, dict) or item.get("status") not in {"applied", "skipped"}:
+        return None
+    mode = state["modes"].get(item.get("mode"))
+    return mode["label"] if mode else None
 
 
-def mode_summary(mode):
-    labels = sorted(str(i.get("label")) for i in mode["items"].values()
-                    if isinstance(i, dict) and i.get("status") == "applied")
-    return f"{mode['label']} on: " + (", ".join(labels) if labels else "nothing changed") + "."
+def profile_mode_summary(state):
+    """What the power-profile modes (not toggles such as reduce-transparency) changed."""
+    parts = []
+    for mode_id, mode in state["modes"].items():
+        if mode["kind"] != "profile":
+            continue
+        labels = sorted(str(i.get("label")) for i in state["items"].values()
+                        if isinstance(i, dict) and i.get("status") == "applied" and i.get("mode") == mode_id)
+        parts.append(f"{mode['label']} on: " + (", ".join(labels) if labels else "nothing changed") + ".")
+    return " ".join(parts)
 
 
 def profile_status():
@@ -341,9 +352,10 @@ def profile_status():
             degraded = power_property("PerformanceDegraded")
             if degraded:
                 detail = f"Performance is limited ({degraded})."
-        mode = modes_state()
-        if mode:
-            detail = f"{detail} {mode_summary(mode)}"
+        modes = modes_state()
+        summary = profile_mode_summary(modes) if modes else ""
+        if summary:
+            detail = f"{detail} {summary}"
         return ProfileStatus(state=state, detail=detail)
     except (OSError, ValueError, KeyError, AttributeError, subprocess.SubprocessError):
         return ProfileStatus(state="unknown", detail="Power profile status is unavailable.")
@@ -351,9 +363,9 @@ def profile_status():
 
 def ambilight_status():
     status = device_ambilight_status()
-    mode = modes_state()
-    if mode_holds(mode, "ambilight"):
-        status.detail = f"{status.detail} Dimmed by {mode['label']}."
+    mode = mode_holding(modes_state(), "ambilight")
+    if mode:
+        status.detail = f"{status.detail} Dimmed by {mode}."
     return status
 
 

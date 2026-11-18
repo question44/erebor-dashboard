@@ -169,10 +169,13 @@ if __name__ == "__main__":
 
 
 class ModesState(unittest.TestCase):
-    STATE = {"modes": ["power-saver"], "mode_labels": {"power-saver": "Power saver"},
-             "items": {"glass": {"label": "Liquid glass off", "status": "applied"},
-                       "ambilight": {"label": "Ambilight dimmed", "status": "applied"},
-                       "gpu": {"label": "GPU power limit 200 W", "status": "failed"}}}
+    STATE = {"modes": ["power-saver", "reduce-transparency"],
+             "mode_labels": {"power-saver": "Power saver", "reduce-transparency": "Reduce transparency"},
+             "mode_kinds": {"power-saver": "profile", "reduce-transparency": "toggle"},
+             "items": {"glass": {"label": "Liquid glass off", "status": "applied", "mode": "power-saver"},
+                       "ambilight": {"label": "Ambilight dimmed", "status": "applied", "mode": "power-saver"},
+                       "gpu": {"label": "GPU power limit 200 W", "status": "failed", "mode": "power-saver"},
+                       "opacity": {"label": "Apps opaque", "status": "applied", "mode": "reduce-transparency"}}}
 
     def with_state(self, state):
         import tempfile
@@ -188,6 +191,7 @@ class ModesState(unittest.TestCase):
             detail = control.profile_status().detail
         self.assertIn("Power saver on: Ambilight dimmed, Liquid glass off.", detail)
         self.assertNotIn("GPU", detail)
+        self.assertNotIn("transparency", detail)  # a toggle mode, not a profile
 
     @patch.object(control, "power_property", return_value="balanced")
     def test_no_mode_or_bad_file_keeps_detail(self, _prop):
