@@ -29,6 +29,8 @@ export interface Settings {
   /** Administrators only: a read-only task board is available from the API. */
   taskBoard?: boolean;
   sequoia?: boolean;
+  /** Actions the system control daemon asks the owner to approve first. */
+  approvals?: Record<string, 'approve'>;
 }
 export type TaskStatus = 'ACTIVE' | 'OPEN' | 'REVIEW';
 export interface TaskItem {

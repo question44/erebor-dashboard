@@ -24,7 +24,7 @@ class Requests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json(), {"message": "Command sent"})
             self.assertEqual(response.headers["Cache-Control"], "no-store")
-            action.assert_called_with(name)
+            action.assert_called_with(name, "admin")
 
     @patch.object(control, "action")
     def test_reject_cross_origin_and_simple_requests(self, action):

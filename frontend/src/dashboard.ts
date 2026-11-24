@@ -591,16 +591,24 @@ export class Dashboard {
     this.switching.set(device ?? null);
     if (!device) this.clearDevices();
     this.clearPower();
-    this.status.set({ severity: 'info', text: 'Sending command…' });
+    const approval = this.settings.approvals?.[action.id] === 'approve';
+    this.status.set({ severity: 'info', text: approval
+      ? `${action.label}: approve it on your phone or security key…` : 'Sending command…' });
     try {
       const response = await fetch('/api/control', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Erebor-Control': '1' },
         body: JSON.stringify({ action: action.id }),
-        signal: AbortSignal.timeout(action.id === 'reboot-windows' ? 70000 : 20000),
+        // An approval waits up to a minute before the action itself runs.
+        signal: AbortSignal.timeout((approval ? 70000 : 0) + (action.id === 'reboot-windows' ? 70000 : 20000)),
       });
       if (response.status === 401) { this.session.expired(); return; }
       const result = await response.json();
+      if (response.status === 403) {
+        // Refused by the approval or the system policy: not a lost connection.
+        this.status.set({ severity: 'error', text: `${action.label}: ${result.error || 'refused'}` });
+        return;
+      }
       if (!response.ok) throw new Error(result.error || 'Command failed');
       this.status.set({ severity: 'success', text: `${action.label}: command sent.` });
     } catch (error) {

@@ -88,6 +88,16 @@ in
           changed. Null leaves them as they are.
         '';
       };
+      systemDaemon = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "/run/erebor/sysd.sock";
+        description = ''
+          Socket of a system control daemon (erebor-sysd). Power profile, sleep, power off and
+          the Windows reboot then go through it, which may ask the owner to approve them. Null
+          runs them directly.
+        '';
+      };
       extraPackages = lib.mkOption {
         type = lib.types.listOf lib.types.package;
         default = [ ];
@@ -116,6 +126,8 @@ in
         DASHBOARD_SEQUOIA_DATA = cfg.control.sequoiaData;
       } // lib.optionalAttrs (cfg.control.modesState != null) {
         DASHBOARD_MODES_STATE = cfg.control.modesState;
+      } // lib.optionalAttrs (cfg.control.systemDaemon != null) {
+        DASHBOARD_SYSD_SOCKET = cfg.control.systemDaemon;
       } // lib.optionalAttrs (cfg.control.wledUrl != null) {
         DASHBOARD_WLED_URL = cfg.control.wledUrl;
       };

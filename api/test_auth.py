@@ -76,7 +76,7 @@ class Accounts(unittest.TestCase):
         self.assertEqual(ok.status_code, 200)
         denied = self.client.post("/api/control", headers=HEADERS, json={"action": "power-off"})
         self.assertEqual(denied.status_code, 403)
-        action.assert_called_once_with("display-on")
+        action.assert_called_once_with("display-on", "guest")
         self.assertEqual(self.client.get("/api/control/users").status_code, 403)
         self.assertEqual(self.add("other").status_code, 403)
 

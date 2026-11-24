@@ -25,6 +25,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 import uvicorn
 
 import auth
+import sysd
 
 
 HOSTS = set(os.environ.get("DASHBOARD_HOSTS", "localhost,127.0.0.1").split(","))
@@ -57,6 +58,16 @@ SEQUOIA_PATH = "/api/control/sequoia"
 # active modes and what each changed. The profile and Ambilight details then say
 # what the mode changed; read on each refresh, missing or invalid means none.
 MODES_STATE = os.environ.get("DASHBOARD_MODES_STATE") or None
+# Optional system control daemon (erebor-sysd): when set, power profile, sleep,
+# power off and the Windows reboot go through it, which applies its approval
+# policy; otherwise they run directly as before.
+SYSD_SOCKET = os.environ.get("DASHBOARD_SYSD_SOCKET") or None
+SYSD_ACTIONS = {
+    **{f"profile-{p}": ("set-power-profile", {"profile": p}) for p in ("performance", "balanced", "power-saver")},
+    "sleep": ("sleep", {}),
+    "power-off": ("power-off", {}),
+    "reboot-windows": ("reboot-windows", {}),
+}
 TASK_PATH = re.compile(r"^[A-Za-z0-9_-]+(?:/[A-Za-z0-9_.-]+)*\.md$")
 TASK_STATUSES = ("ACTIVE", "OPEN", "REVIEW")
 
@@ -128,7 +139,11 @@ def session_environment(timeout=12):
     return env
 
 
-def action(name):
+def action(name, user=None):
+    if SYSD_SOCKET and name in SYSD_ACTIONS:
+        command, fields = SYSD_ACTIONS[name]
+        sysd.call(SYSD_SOCKET, command, user=user, **fields)
+        return
     if name.startswith("display-"):
         state = name.removeprefix("display-")
         env = session_environment()
@@ -648,7 +663,21 @@ def read_config(user: User):
         view["taskBoard"] = True
     if SEQUOIA_DATA and Path(SEQUOIA_DATA).is_file():
         view["sequoia"] = True
+    if SYSD_SOCKET:
+        approvals = action_approvals(user)
+        if approvals:
+            view["approvals"] = approvals
     return view
+
+
+def action_approvals(user):
+    """Actions the daemon will ask the owner to approve from this dashboard."""
+    try:
+        levels = sysd.call(SYSD_SOCKET, "list-actions", user=user["username"], timeout=5)["actions"]
+    except (OSError, ValueError, KeyError, TypeError, sysd.SysdError):
+        return {}
+    return {name: levels.get(command) for name, (command, _) in SYSD_ACTIONS.items()
+            if levels.get(command) == "approve"}
 
 
 TaskText = Annotated[str, StringConstraints(max_length=200)]
@@ -834,7 +863,14 @@ def execute_control(command: ControlCommand,
     if command.action not in catalog().view(user)["actions"]:
         return JSONResponse({"error": "Your account cannot use this action"}, 403)
     try:
-        action(command.action)
+        action(command.action, user["username"])
+    except sysd.SysdError as exc:
+        print(f"{command.action} refused: {exc.code} {exc}", flush=True)
+        if exc.code == "not-approved":
+            return JSONResponse({"error": f"Not approved ({exc.result or 'no answer'})."}, 403)
+        if exc.code == "forbidden":
+            return JSONResponse({"error": "The system policy does not allow this action."}, 403)
+        return JSONResponse({"error": "Action failed. Check the desktop session and control service log."}, 503)
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
         print(f"{command.action} failed: {exc}", flush=True)
         return JSONResponse({"error": "Action failed. Check the desktop session and control service log."}, 503)
