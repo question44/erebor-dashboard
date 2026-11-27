@@ -6,8 +6,8 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
-import { Action, ApiError, Layout, Section, Settings, TaskBoard, TaskItem, api, availableActions, emptyLayout, errorText, isAbort,
-  isRefusal, readJson, requestFailure, resolveServices } from './config';
+import { Action, ApiError, Layout, Section, Settings, TASK_STATUSES, TaskBoard, TaskItem, api, availableActions, emptyLayout, errorText, isAbort,
+  isRefusal, readJson, requestFailure, resolveServices, titleCase } from './config';
 import { Icon } from './icon';
 import { Session } from './session';
 import { PasswordDialog } from './users';
@@ -53,6 +53,24 @@ interface EmbedWindow {
 const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 const MAX_SPACERS = 16;
 export const isSpacer = (id: string) => id.startsWith(SPACER);
+
+/** Accept any task board shape the API may send: unknown statuses, missing lists or counts. */
+function normalizeBoard(raw: unknown): TaskBoard {
+  const board = (raw && typeof raw === 'object' ? raw : {}) as Partial<Record<keyof TaskBoard, unknown>>;
+  const status = (value: unknown) => String(value ?? '').toUpperCase();
+  const items = <T extends TaskItem>(value: unknown) => (Array.isArray(value) ? value as T[] : [])
+    .filter(item => item && typeof item.id === 'string').map(item => ({ ...item, status: status(item.status) }));
+  const counts = board.counts && typeof board.counts === 'object' ? board.counts as Record<string, unknown> : {};
+  return {
+    counts: Object.fromEntries(Object.entries(counts).filter(([, n]) => typeof n === 'number').map(([id, n]) => [status(id), n as number])),
+    overdue: typeof board.overdue === 'number' ? board.overdue : 0,
+    epics: items<TaskBoard['epics'][number]>(board.epics),
+    tasks: items<TaskItem>(board.tasks),
+    statuses: Array.isArray(board.statuses) ? (board.statuses as { id?: unknown; label?: unknown }[])
+      .filter(s => s && typeof s.id === 'string' && typeof s.label === 'string')
+      .map(s => ({ id: status(s.id), label: s.label as string })) : undefined,
+  };
+}
 
 function readLocalLayout(): Layout {
   try { return { ...emptyLayout(), ...JSON.parse(localStorage.getItem(LOCAL_LAYOUT_KEY) ?? '{}') }; } catch { return emptyLayout(); }
@@ -155,13 +173,26 @@ export class Dashboard {
   readonly showHostStatus = this.hasWake && (this.settings.hostStatus ?? true);
   readonly hasTaskBoard = !!this.settings.taskBoard && !!this.session.account?.admin;
   readonly taskBoard = signal<TaskBoard | null>(null);
-  readonly taskBoardError = signal(false);
+  /** Why the last refresh failed; the last board read stays shown, marked as not refreshed. */
+  readonly taskBoardError = signal<string | null>(null);
   readonly showAllTasks = signal(false);
   readonly tasksFolded = signal(!readTasksOpen());
   /** Epics are listed with their progress; their children and other tasks needing a look follow. */
   readonly attentionTasks = computed(() => (this.taskBoard()?.tasks ?? [])
     .filter(task => task.status === 'ACTIVE' || task.overdue));
   readonly listedTasks = computed(() => this.showAllTasks() ? this.taskBoard()?.tasks ?? [] : this.attentionTasks());
+  /** Counted statuses: known ones in their order and wording, then any others the API sends. */
+  readonly taskStatuses = computed(() => {
+    const board = this.taskBoard();
+    if (!board) return [];
+    const known = Object.keys(TASK_STATUSES), listed = board.statuses ?? [];
+    const rank = (id: string) => known.includes(id) ? known.indexOf(id)
+      : known.length + (listed.some(s => s.id === id) ? listed.findIndex(s => s.id === id) : listed.length);
+    return Object.entries(board.counts)
+      .filter((entry): entry is [string, number] => typeof entry[1] === 'number')
+      .sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b))
+      .map(([id, count]) => ({ id, count, label: this.statusLabel(id) }));
+  });
   private taskRequest = false;
   /** Last failure logged per poll, so a server that stays down is reported once, not every few seconds. */
   private readonly pollFailures = new Map<string, string>();
@@ -258,12 +289,12 @@ export class Dashboard {
     if (!this.hasTaskBoard || this.taskRequest || !this.online() || document.hidden || this.session.cached()) return;
     this.taskRequest = true;
     try {
-      this.taskBoard.set(await api<TaskBoard>('/tasks'));
-      this.taskBoardError.set(false);
+      this.taskBoard.set(normalizeBoard(await api<unknown>('/tasks')));
+      this.taskBoardError.set(null);
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) { this.session.expired(); return; }
       console.warn('Task board not refreshed:', error);
-      this.taskBoardError.set(true);
+      this.taskBoardError.set(errorText(error, 'The task board could not be read.'));
     } finally {
       this.taskRequest = false;
     }
@@ -326,7 +357,17 @@ export class Dashboard {
   }
 
   taskSummary(board: TaskBoard) {
-    return `${board.counts.ACTIVE} active · ${board.counts.OPEN} open · ${board.counts.REVIEW} in review · ${board.overdue} overdue`;
+    return [...this.taskStatuses().map(status => `${status.count} ${status.label.toLowerCase()}`), `${board.overdue} overdue`].join(' · ');
+  }
+
+  statusLabel(id: string) {
+    return TASK_STATUSES[id] ?? this.taskBoard()?.statuses?.find(status => status.id === id)?.label ?? titleCase(id);
+  }
+
+  /** Status shown after a task's title: none for plain open tasks, then its review date when overdue. */
+  taskMeta(task: TaskItem) {
+    const status = task.status === 'OPEN' ? '' : TASK_STATUSES[task.status] ? task.status.toLowerCase() : this.statusLabel(task.status).toLowerCase();
+    return status + (task.overdue ? (status ? ' · ' : '') + 'review ' + (task.review ?? '') : '');
   }
 
   taskTitle(task: TaskItem) {

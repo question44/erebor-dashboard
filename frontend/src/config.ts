@@ -31,13 +31,26 @@ export interface Settings {
   /** Actions the system control daemon asks the owner to approve first. */
   approvals?: Record<string, 'approve'>;
 }
-export type TaskStatus = 'ACTIVE' | 'OPEN' | 'REVIEW';
+/** An upper-case task status such as ACTIVE, READY, OPEN or REVIEW; new ones may appear at any time. */
+export type TaskStatus = string;
 export interface TaskItem {
   id: string; title: string; status: TaskStatus; overdue: boolean;
   review?: string; epic?: string; kind?: string; url?: string;
 }
 export interface TaskEpic extends TaskItem { done: number; total: number; }
-export interface TaskBoard { counts: Record<TaskStatus, number>; overdue: number; epics: TaskEpic[]; tasks: TaskItem[]; }
+export interface TaskBoard {
+  /** Tasks per status; older APIs send exactly ACTIVE, OPEN and REVIEW. */
+  counts: Partial<Record<TaskStatus, number>>;
+  overdue: number; epics: TaskEpic[]; tasks: TaskItem[];
+  /** The API's statuses in display order, when it sends them. */
+  statuses?: { id: TaskStatus; label: string }[];
+}
+/** Statuses the dashboard knows, in its order and wording; any other status follows with the API's or a title-cased label. */
+export const TASK_STATUSES: Record<string, string> = {
+  ACTIVE: 'Active', READY: 'Ready', OPEN: 'Open', REVIEW: 'In review', DONE: 'Done', CANCELLED: 'Cancelled',
+};
+export const titleCase = (id: string) => id.toLowerCase().split(/[_\s-]+/).filter(Boolean)
+  .map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 export type PublicSettings = Pick<Settings, 'title' | 'description' | 'domainSuffix' | 'auth'> & Partial<Settings>;
 
 export const MODULES: Record<string, { label: string; description: string }> = {
