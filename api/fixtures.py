@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from control import access, auth, catalog, settings, status
+from control import access, auth, catalog, moonshine, settings, status
 from control.app import app
 
 HOST = "dash.example.org"
@@ -38,6 +38,8 @@ def isolated_store(case):
               MODES_STATE=None)
     status.invalidate()
     case.addCleanup(status.invalidate)
+    moonshine.forget_pending()
+    case.addCleanup(moonshine.forget_pending)
     client = TestClient(app)
     case.addCleanup(client.close)
     return client

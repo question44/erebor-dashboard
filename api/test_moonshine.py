@@ -22,6 +22,18 @@ class Pending(unittest.TestCase):
         self.assertEqual(moonshine.moonshine_pending(fresh=True), ["AAAA1111BBBB2222", "CCCC3333DDDD4444"])
         self.assertEqual(run.call_args.args[:3], ("journalctl", "--unit", "moonshine.service"))
 
+    @patch.object(system, "run", return_value=LOG)
+    def test_pending_is_shared_briefly_and_pairing_reads_fresh(self, run):
+        moonshine.forget_pending()
+        moonshine.moonshine_pending()
+        moonshine.moonshine_pending()
+        self.assertEqual(run.call_count, 1)
+        with patch.object(moonshine, "moonshine_submit", return_value=True):
+            moonshine.moonshine_pair("1234")
+        self.assertEqual(run.call_count, 2)
+        moonshine.moonshine_pending()
+        self.assertEqual(run.call_count, 3)  # pairing cleared the shared result
+
     @patch.object(moonshine, "moonshine_submit", return_value=True)
     @patch.object(moonshine, "moonshine_pending", return_value=["AAAA1111BBBB2222", "CCCC3333DDDD4444"])
     def test_pin_goes_only_to_newest_request(self, pending, submit):
