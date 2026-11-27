@@ -54,6 +54,7 @@ export class Session {
       await this.loadDashboard();
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) { this.expired(); return; }
+      console.warn('Session check failed:', error);
       const cached = this.readCache();
       if (cached) {
         this.cached.set(true);
@@ -94,7 +95,10 @@ export class Session {
   }
 
   async logout() {
-    try { await api('/auth/logout', 'POST', {}); } catch { /* The local session is cleared regardless. */ }
+    try { await api('/auth/logout', 'POST', {}); } catch (error) {
+      // The local session is cleared regardless.
+      console.warn('Sign-out request failed:', error);
+    }
     this.forget();
     this.view.set({ kind: 'login', message: 'Signed out.' });
   }
@@ -117,7 +121,7 @@ export class Session {
   /** Keep the offline copy of the dashboard in step with a layout change. */
   cacheLayout(layout: Layout) {
     const cached = this.readCache();
-    if (cached) try { localStorage.setItem(CACHE_KEY, JSON.stringify({ ...cached, layout })); } catch { /* Best effort. */ }
+    if (cached) try { localStorage.setItem(CACHE_KEY, JSON.stringify({ ...cached, layout })); } catch (error) { console.warn('Offline copy not updated:', error); }
   }
 
   forgetRecent(username: string) {
@@ -131,7 +135,7 @@ export class Session {
 
   private saveRecent(accounts: RecentAccount[]) {
     this.recent.set(accounts);
-    try { localStorage.setItem(RECENT_KEY, JSON.stringify(accounts)); } catch { /* Storage may be unavailable. */ }
+    try { localStorage.setItem(RECENT_KEY, JSON.stringify(accounts)); } catch (error) { console.warn('Recent accounts not saved:', error); }
   }
 
   private readRecent(): RecentAccount[] {

@@ -72,6 +72,10 @@ h2 { font-size: 1.25rem; font-weight: 600; margin: 0 0 16px; }
 .notice { border-radius: 12px; padding: 16px; background: var(--paper); margin: 16px 0 0; }
 .notice.error { color: var(--error); }
 .notice.success { color: light-dark(#236b31, #a0d5a6); }
+/* Refused on purpose (approval, policy) rather than failed. */
+.notice.refused, .pairing-status.refused { color: light-dark(#805600, #f1cb77); }
+.notice.refused { box-shadow: inset 3px 0 0 currentColor; }
+.notice.error { box-shadow: inset 3px 0 0 currentColor; }
 .notice.warning { margin-bottom: 24px; }
 .services-section { margin-top: 32px; }
 .services { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }

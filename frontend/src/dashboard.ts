@@ -6,7 +6,8 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
-import { Action, ApiError, Layout, Section, Settings, TaskBoard, TaskItem, api, availableActions, emptyLayout, resolveServices } from './config';
+import { Action, ApiError, Layout, Section, Settings, TaskBoard, TaskItem, api, availableActions, emptyLayout, errorText, isAbort,
+  isRefusal, readJson, requestFailure, resolveServices } from './config';
 import { Icon } from './icon';
 import { Session } from './session';
 import { PasswordDialog } from './users';
@@ -21,7 +22,8 @@ interface PowerStatus {
   state: 'awake' | 'asleep' | 'off' | 'unknown'; detail: string;
   operatingSystem?: { state: 'nixos' | 'windows' | 'unknown'; detail: string; };
 }
-interface Status { severity: 'info' | 'success' | 'error'; text: string; }
+/** warning: refused on purpose (approval, policy); error: something failed. */
+interface Status { severity: 'info' | 'success' | 'warning' | 'error'; text: string; }
 interface OutletStatus { on: boolean; watts: number; todayKwh: number; monthKwh: number; }
 type Arrangeable = Section;
 const HIDDEN = { cards: 'hiddenCards', services: 'hiddenServices' } as const;
@@ -161,6 +163,8 @@ export class Dashboard {
     .filter(task => task.status === 'ACTIVE' || task.overdue));
   readonly listedTasks = computed(() => this.showAllTasks() ? this.taskBoard()?.tasks ?? [] : this.attentionTasks());
   private taskRequest = false;
+  /** Last failure logged per poll, so a server that stays down is reported once, not every few seconds. */
+  private readonly pollFailures = new Map<string, string>();
   readonly hasOutlet = this.settings.outletUrl?.startsWith('https://') ?? false;
   readonly outlet = signal<OutletStatus | null>(null);
   readonly checkingOutlet = signal(false);
@@ -258,6 +262,7 @@ export class Dashboard {
       this.taskBoardError.set(false);
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) { this.session.expired(); return; }
+      console.warn('Task board not refreshed:', error);
       this.taskBoardError.set(true);
     } finally {
       this.taskRequest = false;
@@ -328,6 +333,16 @@ export class Dashboard {
     return `${task.status}${task.kind === 'check' ? ' · check' : ''}${task.review ? ' · review ' + task.review : ''}${task.overdue ? ' (overdue)' : ''}`;
   }
 
+  private pollFailed(poll: string, error: unknown) {
+    if (isAbort(error)) return;
+    const text = String(error);
+    if (this.pollFailures.get(poll) === text) return;
+    this.pollFailures.set(poll, text);
+    console.warn(`${poll} unavailable:`, error);
+  }
+
+  private pollSucceeded(poll: string) { this.pollFailures.delete(poll); }
+
   private clearOutlet() {
     this.outletRequest?.abort();
     this.outletRequest = null;
@@ -345,13 +360,13 @@ export class Dashboard {
         mode: 'cors', credentials: 'omit', cache: 'no-store',
         signal: AbortSignal.any([controller.signal, AbortSignal.timeout(25000)]),
       });
-      if (!response.ok) throw new Error('Outlet unavailable');
-      const result: OutletStatus = await response.json();
-      if (typeof result.on !== 'boolean' || [result.watts, result.todayKwh, result.monthKwh]
+      if (!response.ok) throw new Error(`Outlet unavailable (${response.status})`);
+      const result: OutletStatus | null = await readJson(response);
+      if (typeof result?.on !== 'boolean' || [result.watts, result.todayKwh, result.monthKwh]
         .some(value => typeof value !== 'number' || !Number.isFinite(value) || value < 0)) throw new Error('Invalid outlet reading');
-      if (!controller.signal.aborted) this.outlet.set(result);
-    } catch {
-      if (!controller.signal.aborted) this.outlet.set(null);
+      if (!controller.signal.aborted) { this.outlet.set(result); this.pollSucceeded('Outlet'); }
+    } catch (error) {
+      if (!controller.signal.aborted) { this.outlet.set(null); this.pollFailed('Outlet', error); }
     } finally {
       if (this.outletRequest === controller) {
         this.outletRequest = null;
@@ -368,15 +383,13 @@ export class Dashboard {
     const controller = new AbortController();
     this.pairingRequest = controller;
     try {
-      const response = await fetch('/api/control/moonshine/pairing', {
-        cache: 'no-store', signal: AbortSignal.any([controller.signal, AbortSignal.timeout(8000)]),
-      });
-      if (response.status === 401) { this.session.expired(); return; }
-      if (!response.ok) throw new Error('Pairing status unavailable');
-      const result: { waiting: boolean | null } = await response.json();
-      this.pairingWaiting.set(result.waiting);
-    } catch {
+      const result = await api<{ waiting: boolean | null }>('/moonshine/pairing', 'GET', undefined, { timeout: 8000, signal: controller.signal });
+      this.pairingWaiting.set(typeof result.waiting === 'boolean' ? result.waiting : null);
+      this.pollSucceeded('Pairing status');
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) { this.session.expired(); return; }
       this.pairingWaiting.set(null);
+      this.pollFailed('Pairing status', error);
     } finally {
       if (this.pairingRequest === controller) this.pairingRequest = null;
     }
@@ -407,8 +420,9 @@ export class Dashboard {
       this.pairingStatus.set({ severity: 'success', text: result.message });
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) { this.session.expired(); return; }
-      this.pairingStatus.set({ severity: 'error', text: error instanceof TypeError
-        ? `Could not reach ${this.settings.title}.` : error instanceof Error ? error.message : 'Pairing failed' });
+      this.pairingStatus.set(isRefusal(error) ? { severity: 'warning', text: error.message || 'Pairing was refused.' }
+        : { severity: 'error', text: error instanceof ApiError && error.kind === 'network'
+          ? `Could not reach ${this.settings.title}.` : errorText(error, 'Pairing failed.') });
     } finally {
       this.busy.set(false);
       void this.refreshPairing();
@@ -482,12 +496,12 @@ export class Dashboard {
         mode: 'cors', credentials: 'omit', cache: 'no-store',
         signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]),
       });
-      if (!response.ok) throw new Error('Power status unavailable');
-      const result: PowerStatus = await response.json();
-      if (!['awake', 'asleep', 'off', 'unknown'].includes(result.state) || typeof result.detail !== 'string') throw new Error('Invalid power status');
-      if (!controller.signal.aborted) this.power.set(result);
-    } catch {
-      if (!controller.signal.aborted) this.power.set(null);
+      if (!response.ok) throw new Error(`Power status unavailable (${response.status})`);
+      const result: PowerStatus | null = await readJson(response);
+      if (!result || !['awake', 'asleep', 'off', 'unknown'].includes(result.state) || typeof result.detail !== 'string') throw new Error('Invalid power status');
+      if (!controller.signal.aborted) { this.power.set(result); this.pollSucceeded('NanoKVM power status'); }
+    } catch (error) {
+      if (!controller.signal.aborted) { this.power.set(null); this.pollFailed('NanoKVM power status', error); }
     } finally {
       await direct;
       if (this.powerRequest === controller) {
@@ -500,13 +514,13 @@ export class Dashboard {
   private async refreshNixOS(controller: AbortController) {
     let confirmed = false;
     try {
-      const response = await fetch('/api/control/os', {
-        cache: 'no-store',
-        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(2500)]),
-      });
-      if (response.status === 401) this.session.expired();
-      confirmed = response.ok && (await response.json()).state === 'nixos';
-    } catch { /* NanoKVM still detects Windows and unavailable host APIs. */ }
+      confirmed = (await api<{ state?: string }>('/os', 'GET', undefined, { timeout: 2500, signal: controller.signal })).state === 'nixos';
+      this.pollSucceeded('Host API');
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) this.session.expired();
+      // Expected while the host sleeps or runs Windows; NanoKVM still reports those.
+      else this.pollFailed('Host API', error);
+    }
     if (!controller.signal.aborted) this.nixosResponding.set(confirmed);
   }
 
@@ -518,16 +532,11 @@ export class Dashboard {
     this.deviceRequest = controller;
     this.checkingDevices.set(true);
     try {
-      const response = await fetch('/api/control/status', {
-        cache: 'no-store',
-        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]),
-      });
-      if (response.status === 401) this.session.expired();
-      if (!response.ok) throw new Error('Status unavailable');
-      const snapshot: DeviceSnapshot = await response.json();
-      if (!controller.signal.aborted) this.devices.set(snapshot);
-    } catch {
-      if (!controller.signal.aborted) this.devices.set(null);
+      const snapshot = await api<DeviceSnapshot>('/status', 'GET', undefined, { timeout: 10000, signal: controller.signal });
+      if (!controller.signal.aborted) { this.devices.set(snapshot); this.pollSucceeded('Device status'); }
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) this.session.expired();
+      if (!controller.signal.aborted) { this.devices.set(null); this.pollFailed('Device status', error); }
     } finally {
       if (this.deviceRequest === controller) {
         this.deviceRequest = null;
@@ -596,26 +605,13 @@ export class Dashboard {
     this.status.set({ severity: 'info', text: approval
       ? `${action.label}: approve it on your phone or security key…` : 'Sending command…' });
     try {
-      const response = await fetch('/api/control', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Erebor-Control': '1' },
-        body: JSON.stringify({ action: action.id }),
-        // An approval waits up to a minute before the action itself runs.
-        signal: AbortSignal.timeout((approval ? 70000 : 0) + (action.id === 'reboot-windows' ? 70000 : 20000)),
-      });
-      if (response.status === 401) { this.session.expired(); return; }
-      const result = await response.json();
-      if (response.status === 403) {
-        // Refused by the approval or the system policy: not a lost connection.
-        this.status.set({ severity: 'error', text: `${action.label}: ${result.error || 'refused'}` });
-        return;
-      }
-      if (!response.ok) throw new Error(result.error || 'Command failed');
+      // An approval waits up to a minute before the action itself runs.
+      await api('', 'POST', { action: action.id }, (approval ? 70000 : 0) + (action.id === 'reboot-windows' ? 70000 : 20000));
       this.status.set({ severity: 'success', text: `${action.label}: command sent.` });
     } catch (error) {
-      this.status.set({ severity: 'error', text: action.confirm
-        ? `Connection lost or command failed. Check whether ${this.settings.title} is asleep, powered off, or rebooting.`
-        : error instanceof Error ? error.message : 'Command failed' });
+      if (error instanceof ApiError && error.status === 401) { this.session.expired(); return; }
+      if (!isRefusal(error)) console.warn(`${action.label} failed:`, error);
+      this.status.set(this.commandFailure(action, error));
     } finally {
       this.busy.set(false);
       void this.refreshPower();
@@ -623,6 +619,21 @@ export class Dashboard {
       this.switching.set(null);
       this.pendingAction.set(null);
     }
+  }
+
+  /** What went wrong with a command: a refusal (warning), or a failure with the server's own reason when it gave one. */
+  private commandFailure(action: Action, error: unknown): Status {
+    const title = this.settings.title;
+    // Refused by the approval or the system policy: not a lost connection.
+    if (isRefusal(error)) return { severity: 'warning', text: `${action.label}: ${error.message || 'refused.'}` };
+    if (error instanceof ApiError && (error.kind === 'network' || error.kind === 'timeout')) {
+      // Sleep, reboot and power off end the connection when they work.
+      if (action.confirm) return { severity: 'error', text: `${action.label}: the connection ended before ${title} answered. `
+        + `Check whether it is asleep, powered off, or rebooting.` };
+      return { severity: 'error', text: error.kind === 'network' ? `${action.label}: could not reach ${title}. The command was not sent.`
+        : `${action.label}: ${title} did not answer in time. The command may still have run.` };
+    }
+    return { severity: 'error', text: `${action.label}: ${errorText(error, 'command failed.')}` };
   }
 
   async wake() {
@@ -637,35 +648,39 @@ export class Dashboard {
         headers: { 'Content-Type': 'application/json', 'X-Erebor-Wake': '1' },
         body: '{}', signal: AbortSignal.timeout(20000),
       });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Wake command failed');
-      if (result.state === 'already-on') {
+      const result = await readJson(response);
+      if (!response.ok) throw new Error(typeof result?.error === 'string' && result.error ? result.error : `Wake command failed (NanoKVM answered ${response.status}).`);
+      if (result?.state === 'already-on') {
         this.status.set({ severity: 'info', text: 'Power LED is steadily on. No button press sent. The PC may already be running.' });
         return;
       }
-      if (result.state !== 'wake-sent') throw new Error('Unexpected NanoKVM response');
+      if (result?.state !== 'wake-sent') throw new Error('Unexpected NanoKVM response.');
       this.status.set({ severity: 'info', text: 'Wake command sent. Waiting for the dashboard server…' });
       const deadline = Date.now() + 90000;
       while (Date.now() < deadline) {
         await new Promise(resolve => window.setTimeout(resolve, 2000));
         try {
-          const check = await fetch('/api/control/status', { cache: 'no-store', signal: AbortSignal.timeout(3000) });
-          if (check.ok) {
-            const snapshot: DeviceSnapshot = await check.json();
-            if (snapshot.display && snapshot.ambilight) {
-              this.devices.set(snapshot);
-              this.status.set({ severity: 'success', text: `${this.settings.title} is awake and its dashboard server is responding.` });
-              if (this.session.cached()) void this.session.check();
-              return;
-            }
+          const snapshot = await api<DeviceSnapshot>('/status', 'GET', undefined, 3000);
+          if (snapshot.display && snapshot.ambilight) {
+            this.devices.set(snapshot);
+            this.pollSucceeded('Dashboard server (waiting for wake)');
+            this.status.set({ severity: 'success', text: `${this.settings.title} is awake and its dashboard server is responding.` });
+            if (this.session.cached()) void this.session.check();
+            return;
           }
-        } catch { /* Keep waiting while the host resumes or boots. */ }
+        } catch (error) {
+          // Keep waiting while the host resumes or boots.
+          this.pollFailed('Dashboard server (waiting for wake)', error);
+        }
       }
       this.status.set({ severity: 'info', text: 'Wake command was sent, but the dashboard server has not responded yet. Check NanoKVM; another operating system may have started.' });
     } catch (error) {
-      this.status.set({ severity: 'error', text: error instanceof TypeError
+      console.warn('Wake failed:', error);
+      const failure = requestFailure(error, undefined, 'NanoKVM');
+      this.status.set({ severity: 'error', text: failure instanceof ApiError && failure.kind === 'network'
         ? 'Could not reach NanoKVM. Check Tailscale and allow local network access if your browser asks. The wake result is unknown.'
-        : error instanceof Error ? error.message : 'Wake command failed' });
+        : failure instanceof ApiError && failure.kind === 'timeout' ? 'NanoKVM did not answer in time. The wake result is unknown.'
+        : errorText(error, 'Wake command failed.') });
     } finally {
       this.busy.set(false);
       void this.refreshDevices();
@@ -881,7 +896,7 @@ export class Dashboard {
       this.updateWindow(this.activeTab()!, { z: ++this.zSeq });
     }
     this.tabbed.set(tabbed);
-    try { localStorage.setItem(WINDOW_MODE_KEY, tabbed ? 'tabs' : 'windows'); } catch { /* Per-session only. */ }
+    try { localStorage.setItem(WINDOW_MODE_KEY, tabbed ? 'tabs' : 'windows'); } catch (error) { console.warn('Window mode not remembered:', error); }
     const key = this.tabbed() ? this.activeTab() : this.topWindow();
     if (key !== null) window.setTimeout(() => this.focusFrame(key));
   }
@@ -1056,7 +1071,7 @@ export class Dashboard {
   private saveLayout(layout: Layout) {
     this.layout.set(layout);
     if (!this.settings.auth) {
-      try { localStorage.setItem(LOCAL_LAYOUT_KEY, JSON.stringify(layout)); } catch { /* Not persisted. */ }
+      try { localStorage.setItem(LOCAL_LAYOUT_KEY, JSON.stringify(layout)); } catch (error) { console.warn('Layout not saved on this device:', error); }
       return;
     }
     this.session.cacheLayout(layout);
@@ -1072,8 +1087,9 @@ export class Dashboard {
     try {
       await api('/layout', 'PUT', this.layout());
     } catch (error) {
-        if (error instanceof ApiError && error.status === 401) { this.session.expired(); return; }
-      this.status.set({ severity: 'error', text: 'Could not save your layout. It will reset when you reload.' });
+      if (error instanceof ApiError && error.status === 401) { this.session.expired(); return; }
+      console.warn('Layout not saved:', error);
+      this.status.set({ severity: 'error', text: `Could not save your layout (${errorText(error, 'request failed').replace(/\.$/, '')}). It will reset when you reload.` });
     }
   }
 

@@ -247,7 +247,7 @@
             <button mat-button class="device-action" type="submit" data-action="moonshine-pair" [disabled]="!canPair()">Pair</button>
           </div>
           @if (pairingStatus(); as message) {
-            <p class="pairing-status" [class.error]="message.severity === 'error'" [class.success]="message.severity === 'success'" role="status">{{ message.text }}</p>
+            <p class="pairing-status" [class.error]="message.severity === 'error'" [class.refused]="message.severity === 'warning'" [class.success]="message.severity === 'success'" role="status">{{ message.text }}</p>
           }
         </form>
         }
@@ -272,7 +272,7 @@
         (click)="addSpacer('cards')"><span class="menu-item"><erebor-icon name="plus" />Add spacer</span></button>
     }
     @if (status(); as message) {
-      <p class="notice" [class.error]="message.severity === 'error'" [class.success]="message.severity === 'success'" role="status" aria-live="polite">{{ message.text }}</p>
+      <p class="notice" [class.error]="message.severity === 'error'" [class.refused]="message.severity === 'warning'" [class.success]="message.severity === 'success'" role="status" aria-live="polite">{{ message.text }}</p>
     }
   </section>
   }
