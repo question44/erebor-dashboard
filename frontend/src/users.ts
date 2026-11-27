@@ -6,7 +6,7 @@ import { MAT_DIALOG_DATA, MatDialog, MatDialogModule, MatDialogRef } from '@angu
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
-import { MODULES, actionLabel, api } from './config';
+import { MODULES, actionLabel, api, errorText } from './config';
 import { Icon } from './icon';
 import { Session } from './session';
 import { USERNAME_PATTERN, passwordsMatch } from './sign-in';
@@ -76,7 +76,7 @@ export class Users implements OnInit {
 
   private fail(error: unknown) {
     if (error instanceof Error && 'status' in error && error.status === 401) { this.session.expired(); return; }
-    this.error.set(error instanceof Error ? error.message : 'Request failed');
+    this.error.set(errorText(error, 'Request failed.'));
   }
 
   summary(user: User, catalog: Catalog) {
@@ -213,7 +213,7 @@ export class UserEditor {
       }
       this.ref.close(true);
     } catch (error) {
-      this.error.set(error instanceof Error ? error.message : 'Could not save');
+      this.error.set(errorText(error, 'Could not save.'));
     } finally {
       this.busy.set(false);
     }
@@ -270,7 +270,7 @@ export class PasswordDialog {
       this.ref.close(true);
     } catch (error) {
       if (error instanceof Error && 'status' in error && error.status === 401) { this.ref.close(); this.session.expired(); return; }
-      this.error.set(error instanceof Error ? error.message : 'Could not change password');
+      this.error.set(errorText(error, 'Could not change password.'));
     } finally {
       this.busy.set(false);
     }

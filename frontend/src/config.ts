@@ -28,17 +28,29 @@ export interface Settings {
   layout?: Layout;
   /** Administrators only: a read-only task board is available from the API. */
   taskBoard?: boolean;
-  sequoia?: boolean;
   /** Actions the system control daemon asks the owner to approve first. */
   approvals?: Record<string, 'approve'>;
 }
-export type TaskStatus = 'ACTIVE' | 'OPEN' | 'REVIEW';
+/** An upper-case task status such as ACTIVE, READY, OPEN or REVIEW; new ones may appear at any time. */
+export type TaskStatus = string;
 export interface TaskItem {
   id: string; title: string; status: TaskStatus; overdue: boolean;
   review?: string; epic?: string; kind?: string; url?: string;
 }
 export interface TaskEpic extends TaskItem { done: number; total: number; }
-export interface TaskBoard { counts: Record<TaskStatus, number>; overdue: number; epics: TaskEpic[]; tasks: TaskItem[]; }
+export interface TaskBoard {
+  /** Tasks per status; older APIs send exactly ACTIVE, OPEN and REVIEW. */
+  counts: Partial<Record<TaskStatus, number>>;
+  overdue: number; epics: TaskEpic[]; tasks: TaskItem[];
+  /** The API's statuses in display order, when it sends them. */
+  statuses?: { id: TaskStatus; label: string }[];
+}
+/** Statuses the dashboard knows, in its order and wording; any other status follows with the API's or a title-cased label. */
+export const TASK_STATUSES: Record<string, string> = {
+  ACTIVE: 'Active', READY: 'Ready', OPEN: 'Open', REVIEW: 'In review', DONE: 'Done', CANCELLED: 'Cancelled',
+};
+export const titleCase = (id: string) => id.toLowerCase().split(/[_\s-]+/).filter(Boolean)
+  .map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 export type PublicSettings = Pick<Settings, 'title' | 'description' | 'domainSuffix' | 'auth'> & Partial<Settings>;
 
 export const MODULES: Record<string, { label: string; description: string }> = {
@@ -77,7 +89,6 @@ export const paths: Record<string, string> = {
   'eye-off': 'M3 3l18 18 M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4.1 M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a9.8 9.8 0 0 0 5.4-1.6 M9.9 9.9a3 3 0 0 0 4.2 4.2',
   reset: 'M3 12a9 9 0 1 0 3-6.7L3 8 M3 3v5h5',
   check: 'M5 12.5l4.5 4.5L19 7',
-  blank: '',
   chevron: 'M6 9l6 6 6-6',
   'fold-grip': 'M8 5l4-3 4 3 M8 19l4 3 4-3 M4 12h16',
   maximize: 'M4 4h16v16H4z',
@@ -118,22 +129,74 @@ export function resolveServices(settings: Settings) {
   }));
 }
 
+/** How a request failed: an HTTP error answer, no connection, no answer in time, or an unreadable answer. */
+export type ApiFailure = 'http' | 'network' | 'timeout' | 'invalid';
+
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number) { super(message); }
+  constructor(message: string, readonly status: number, readonly kind: ApiFailure = 'http',
+    /** Machine-readable reason, when the API sends one (e.g. "denied", "daemon-unreachable"). */
+    readonly code?: string) {
+    super(message);
+    this.name = 'ApiError';
+  }
 }
 
-/** Same-origin JSON call to the control API, satisfying its CSRF boundary. */
-export async function api<T>(path: string, method = 'GET', body?: unknown, timeout = 15000): Promise<T> {
-  const response = await fetch(`/api/control${path}`, {
-    method, cache: 'no-store', credentials: 'same-origin',
-    headers: method === 'GET' ? {} : { 'Content-Type': 'application/json', 'X-Erebor-Control': '1' },
-    body: method === 'GET' || method === 'DELETE' ? undefined : JSON.stringify(body ?? {}),
-    signal: AbortSignal.timeout(timeout),
-  });
+/** Error codes for requests the system refused on purpose (approval, policy), as opposed to failures. */
+const REFUSAL_CODES = new Set(['not-approved', 'no-method', 'denied', 'forbidden']);
+
+/** A deliberate refusal; APIs without error codes signal those with 403. */
+export const isRefusal = (error: unknown): error is ApiError => error instanceof ApiError
+  && (error.code ? REFUSAL_CODES.has(error.code) : error.status === 403);
+
+export const isAbort = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
+
+/** The failure of a fetch() itself: the caller's abort passes through, the rest becomes an ApiError. */
+export function requestFailure(error: unknown, signal?: AbortSignal, server = 'the dashboard server'): unknown {
+  if (signal?.aborted || isAbort(error)) return error;
+  if (error instanceof DOMException && error.name === 'TimeoutError') return new ApiError(`${capitalize(server)} did not answer in time.`, 0, 'timeout');
+  if (error instanceof TypeError) return new ApiError(`Could not reach ${server}.`, 0, 'network');
+  return error;
+}
+
+/** A message for the user from any error, never a raw "signal timed out" or JSON parse error. */
+export function errorText(error: unknown, fallback: string): string {
+  const failure = requestFailure(error);
+  if (failure instanceof ApiError || (failure instanceof Error && !(failure instanceof SyntaxError) && failure.message)) return failure.message;
+  return fallback;
+}
+
+const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+/** The body of a response as JSON, or null when it is empty or not JSON (e.g. a proxy's HTML error page). */
+export async function readJson(response: Response): Promise<any> {
   const text = await response.text();
+  try { return text ? JSON.parse(text) : null; } catch { return null; }
+}
+
+export interface ApiOptions { timeout?: number; signal?: AbortSignal; }
+
+/** Same-origin JSON call to the control API, satisfying its CSRF boundary. Every failure is an ApiError, except the caller's own abort. */
+export async function api<T>(path: string, method = 'GET', body?: unknown, options: number | ApiOptions = {}): Promise<T> {
+  const { timeout = 15000, signal } = typeof options === 'number' ? { timeout: options } : options;
+  const deadline = AbortSignal.timeout(timeout);
+  let response: Response, text: string;
+  try {
+    response = await fetch(`/api/control${path}`, {
+      method, cache: 'no-store', credentials: 'same-origin',
+      headers: method === 'GET' ? {} : { 'Content-Type': 'application/json', 'X-Erebor-Control': '1' },
+      body: method === 'GET' || method === 'DELETE' ? undefined : JSON.stringify(body ?? {}),
+      signal: signal ? AbortSignal.any([signal, deadline]) : deadline,
+    });
+    text = await response.text();
+  } catch (error) { throw requestFailure(error, signal); }
   let result: any = null;
-  try { result = text ? JSON.parse(text) : null; } catch { /* Proxy errors are plain text. */ }
-  if (!response.ok) throw new ApiError(result?.error ?? (text.trim().slice(0, 200) || `Request failed (${response.status})`), response.status);
-  if (result === null) throw new ApiError('Unexpected response from the dashboard server', response.status);
+  try { result = text ? JSON.parse(text) : null; } catch { /* Proxy errors are plain text or HTML. */ }
+  if (!response.ok) {
+    const plain = result === null && text.trim() && !/^\s*</.test(text) ? text.trim().slice(0, 200) : '';
+    const message = typeof result?.error === 'string' && result.error ? result.error
+      : plain || `The dashboard server answered ${response.status}${response.statusText ? ' ' + response.statusText : ''}.`;
+    throw new ApiError(message, response.status, 'http', typeof result?.code === 'string' ? result.code : undefined);
+  }
+  if (result === null) throw new ApiError('Unexpected response from the dashboard server.', response.status, 'invalid');
   return result as T;
 }

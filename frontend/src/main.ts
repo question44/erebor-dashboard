@@ -1,15 +1,19 @@
-import './background';
-import './toggles';
-import './glass-menu';
-import { Component, inject } from '@angular/core';
+import { Component, ErrorHandler, inject } from '@angular/core';
 import { bootstrapApplication } from '@angular/platform-browser';
 import { MatButtonModule } from '@angular/material/button';
+import { ReportingErrorHandler, startErrorReporting } from './client-log';
 import { PublicSettings } from './config';
 import { Dashboard } from './dashboard';
 import { Icon } from './icon';
 import { Session } from './session';
 import { Login, Setup } from './sign-in';
 import { Users } from './users';
+
+// One-time cleanup: the removed per-device background choice (and its older on/off form) left these behind.
+try {
+  localStorage.removeItem('erebor-dashboard-background');
+  localStorage.removeItem('erebor-dashboard-glass');
+} catch (error) { console.warn('Could not clear old background settings:', error); }
 
 const publicSettings: PublicSettings = await fetch('/config.json').then(response => {
   if (!response.ok) throw new Error('Dashboard configuration unavailable');
@@ -46,6 +50,7 @@ class App {
     update();
     scheme.addEventListener('change', update);
     document.title = `${publicSettings.title} services`;
+    startErrorReporting(() => !!this.session.account && !this.session.cached());
     void this.session.start(publicSettings);
   }
 
@@ -53,7 +58,7 @@ class App {
   unavailableMessage() { const view = this.view(); return view.kind === 'unavailable' ? view.message : ''; }
 }
 
-bootstrapApplication(App).catch(error => console.error('Dashboard unavailable:', error));
+bootstrapApplication(App, { providers: [{ provide: ErrorHandler, useClass: ReportingErrorHandler }] }).catch(error => console.error('Dashboard unavailable:', error));
 if ('serviceWorker' in navigator && isSecureContext) {
   navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
     .catch(error => console.error('Offline support unavailable:', error));

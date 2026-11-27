@@ -4,6 +4,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatStepperModule } from '@angular/material/stepper';
+import { errorText } from './config';
 import { Icon } from './icon';
 import { RecentAccount, Session } from './session';
 
@@ -84,7 +85,7 @@ export class Setup {
     try {
       await this.session.setup(this.normalized(), this.form.controls.password.value);
     } catch (error) {
-      this.error.set(error instanceof Error ? error.message : 'Setup failed');
+      this.error.set(errorText(error, 'Setup failed.'));
       // Someone else finished setup first: go to sign-in instead.
       if (error instanceof Error && 'status' in error && error.status === 409) void this.session.check();
     } finally {
@@ -171,8 +172,7 @@ export class Login {
     try {
       await this.session.login(this.form.controls.username.value.trim().toLowerCase(), this.form.controls.password.value);
     } catch (error) {
-      this.error.set(error instanceof TypeError ? 'Could not reach the dashboard server.'
-        : error instanceof Error ? error.message : 'Sign-in failed');
+      this.error.set(errorText(error, 'Sign-in failed.'));
       this.form.controls.password.reset();
     } finally {
       this.busy.set(false);
