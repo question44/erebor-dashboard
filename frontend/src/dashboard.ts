@@ -8,7 +8,6 @@ import { MatMenuModule } from '@angular/material/menu';
 import { Action, ApiError, Layout, Section, Settings, TaskBoard, TaskItem, api, availableActions, emptyLayout, resolveServices } from './config';
 import { Icon } from './icon';
 import { createSpring } from './vendor/liquid-glass.js';
-import { BACKGROUNDS, background, sequoiaAvailable, setBackground } from './background';
 import { Session } from './session';
 import { PasswordDialog } from './users';
 
@@ -109,9 +108,6 @@ export class Dashboard {
    * (moving an iframe reloads it and would end its shell); they are laid over the frame's content area.
    */
   readonly tabbed = signal(readTabbed());
-  readonly background = background;
-  readonly setBackground = setBackground;
-  readonly backgrounds = BACKGROUNDS.filter(b => !b.id.startsWith('sequoia') || this.settings.sequoia);
   readonly activeTab = signal<number | null>(null);
   readonly tabsMinimized = signal(false);
   readonly tabsMaximized = signal(false);
@@ -191,7 +187,6 @@ export class Dashboard {
   @ViewChild('confirmDialog') confirmDialog!: TemplateRef<unknown>;
 
   constructor() {
-    sequoiaAvailable(!!this.settings.sequoia);
     document.title = `${this.settings.title} services`;
     void this.refreshDevices();
     void this.refreshPower();

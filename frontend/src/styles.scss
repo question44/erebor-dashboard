@@ -12,39 +12,6 @@ html {
 }
 * { box-sizing: border-box; }
 body { margin: 0; }
-/* Transparent background (per device, glass.ts): no page colour at all, so
-   the window behind shows through between the cards; cards keep theirs. */
-html.glass { background: transparent; }
-/* Sequoia background (background.ts, sequoia.ts): a fixed WebGL canvas behind
-   everything draws the wallpaper and liquid glass under each card, so the cards
-   only tint it. Keep this selector list in step with sequoia.ts GLASS_SELECTOR. */
-html.sequoia { --glass-fill: 42%; }
-@media (prefers-color-scheme: dark) { html.sequoia { --glass-fill: 55%; } }
-/* The large viewport height: on phones the canvas already covers what appears when the
-   browser's bars collapse while scrolling (the renderer redraws when its size changes). */
-.sequoia-canvas { position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; height: 100lvh; z-index: -1; pointer-events: none; }
-/* Behind the canvas (overscroll, the first frame): a wallpaper-like colour instead of the page's, and no bounce past the ends. */
-html.sequoia { background: #3d63d4; overscroll-behavior-y: none; }
-@media (prefers-color-scheme: dark) { html.sequoia { background: #241a6e; } }
-/* The glass and its tint (var(--paper) at --glass-fill) are drawn by sequoia.ts. */
-html.sequoia :is(.outlet-panel, .action.mat-mdc-button, .notice, .service.mat-mdc-button, .device-control,
-  .auth-card, .user-card, .fold-more, .account-button.mat-mdc-button,
-  .edit-button.mat-mdc-icon-button:not(.active)) {
-  background: transparent;
-}
-/* Hover: the glass lights up under the pointer (sequoia.ts) and the card lifts a little. */
-html.sequoia :is(.action.mat-mdc-button, .service.mat-mdc-button, .device-control) {
-  transition: transform .35s var(--spring);
-}
-html.sequoia main:not(.editing) :is(.action.mat-mdc-button, .service.mat-mdc-button, .device-control):hover { transform: translateY(-2px); }
-
-/* The title is drawn as glass text by sequoia.ts; the DOM text stays for layout and selection. */
-html.sequoia .glass-text { color: transparent; }
-/* Text straight on the wallpaper: a soft halo in the page colour. */
-html.sequoia { --halo: color-mix(in srgb, var(--page) 75%, transparent); }
-html.sequoia :is(.intro, h2, footer, .host-status, .show-hidden, .section-heading) {
-  color: var(--ink); text-shadow: 0 0 2px var(--halo), 0 0 10px var(--halo), 0 0 18px var(--halo);
-}
 main { max-width: 900px; margin: auto; padding: 48px 24px; }
 header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .host-heading { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; min-width: 0; }

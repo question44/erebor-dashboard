@@ -1,4 +1,3 @@
-import './background';
 import './toggles';
 import './glass-menu';
 import { Component, inject } from '@angular/core';
@@ -10,6 +9,12 @@ import { Icon } from './icon';
 import { Session } from './session';
 import { Login, Setup } from './sign-in';
 import { Users } from './users';
+
+// One-time cleanup: the removed per-device background choice (and its older on/off form) left these behind.
+try {
+  localStorage.removeItem('erebor-dashboard-background');
+  localStorage.removeItem('erebor-dashboard-glass');
+} catch (error) { console.warn('Could not clear old background settings:', error); }
 
 const publicSettings: PublicSettings = await fetch('/config.json').then(response => {
   if (!response.ok) throw new Error('Dashboard configuration unavailable');
