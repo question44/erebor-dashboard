@@ -98,39 +98,19 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--primary); outli
 .device-control { grid-column: span 2; display: flex; flex-direction: column; padding: 16px; border-radius: 20px; background: var(--paper); min-width: 0; }
 .state-summary { flex: 1; }
 .device-actions { position: relative; display: flex; gap: 8px; margin-top: 16px; }
-/* Liquid glass controls (toggles.ts, vendor/liquid-glass.js): the lens bends a copy of the
-   row's labels in the accent colour on a light surface, clipped to the current option. */
-:root { --seg-surface: #ffffff; --track-off: #d1d5db; }
-@media (prefers-color-scheme: dark) { :root { --seg-surface: #4a4458; --track-off: #4a4752; } }
-.device-action.mat-mdc-button { position: relative; z-index: 1; }
-.device-actions.has-lens .device-action.current { background: transparent; }
-/* The segmented track (liquidglass.dev: 4 px padding and gap on a soft track). */
-.device-actions.has-lens { padding: 4px; gap: 4px; border-radius: 16px; background: color-mix(in srgb, var(--track-off) 45%, transparent); }
-.seg-copy { position: absolute; inset: 0; z-index: 2; pointer-events: none; background: var(--seg-surface); }
-.seg-copy__option { position: absolute; display: grid; place-items: center; padding: 0 8px; text-align: center;
-  color: var(--primary); font-size: .875rem; font-weight: 600; letter-spacing: .006em; line-height: 1.2; }
-.seg-shadow { position: absolute; left: 0; top: 0; z-index: 1; pointer-events: none; box-shadow: 0 1px 3px rgb(0 0 0 / .12), 0 2px 8px rgb(0 0 0 / .08); }
-.device-actions:not(.has-lens) :is(.seg-copy, .seg-shadow) { display: none; }
-/* Glass switch (liquidglass.dev <lg-switch>): 64 x 28 track; the knob turns into a lens while pressed. */
-.glass-switch { display: inline-flex; align-items: center; gap: 10px; font-size: .875rem; cursor: pointer; user-select: none; }
-.glass-switch.disabled { cursor: default; opacity: .5; }
-.gs-control { --p: 0; position: relative; flex: none; width: 64px; height: 28px; }
-.gs-control input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: inherit; z-index: 4; }
-.gs-track, .gs-fill { border-radius: 14px; background: color-mix(in srgb, var(--track-off), var(--primary) calc(var(--p) * 100%)); }
-.gs-track { position: absolute; inset: 0; }
-.gs-refract { position: absolute; left: -16px; top: -16px; width: 96px; height: 60px; z-index: 1; pointer-events: none; background: var(--seg-surface); }
-.gs-fill { position: absolute; left: 16px; top: 16px; width: 64px; height: 28px; }
-.gs-thumb, .gs-shadow { position: absolute; left: 0; top: 0; pointer-events: none; }
-.gs-thumb { z-index: 3; background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / .18); }
-.gs-shadow { z-index: 2; opacity: 0; box-shadow: 0 4px 12px rgb(0 0 0 / .14); }
-.gs-control input:focus-visible ~ .gs-thumb { outline: 2px solid var(--primary); outline-offset: 2px; }
-/* Press feedback on the glass buttons, springing back. */
+/* Press feedback on buttons, springing back. */
 :is(.action.mat-mdc-button, .service.mat-mdc-button, .account-button.mat-mdc-button, .edit-button.mat-mdc-icon-button,
   .fold-more, .device-action.mat-mdc-button) { transition: transform .35s var(--spring), scale .35s var(--spring); }
 :is(.action.mat-mdc-button, .service.mat-mdc-button, .account-button.mat-mdc-button, .edit-button.mat-mdc-icon-button,
   .fold-more, .device-action.mat-mdc-button):active:not(:disabled) { scale: .96; transition-duration: .08s; }
 .device-action.mat-mdc-button { flex: 1; min-height: 44px; border-radius: 12px; @include mat.button-overrides((text-label-text-color: var(--primary))); }
 .device-action.current { background: var(--icon-bg); }
+/* The option just pressed, until the device reports its new state. */
+.device-action.pending { background: color-mix(in srgb, var(--primary) 22%, transparent); }
+@media (prefers-reduced-motion: no-preference) {
+  .device-action.pending { animation: pending-pulse .9s ease-in-out infinite alternate; }
+}
+@keyframes pending-pulse { to { background: color-mix(in srgb, var(--primary) 8%, transparent); } }
 .device-action.off { @include mat.button-overrides((text-label-text-color: var(--secondary))); }
 .device-action:disabled { opacity: .4; }
 /* While a command is in flight every option is briefly disabled: keep them as they are, so the rows don't flash. */
@@ -297,9 +277,9 @@ main.busy .device-action:disabled { opacity: 1; cursor: progress; }
 .embed-tool { display: grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: 8px; background: none; color: var(--secondary); cursor: pointer; }
 .embed-tool:hover { background: var(--icon-bg); color: var(--ink); }
 .embed-tool erebor-icon { width: 18px; height: 18px; }
-// Terminal area: ttyd's #2b2b2b at --term-opacity over the blurred page. color-scheme must match the
+// Terminal area: ttyd's #2b2b2b at 80% over the blurred page. color-scheme must match the
 // framed page's (normal), or the browser paints an opaque backdrop behind the iframe.
-.embed-layer { --term-bg: rgb(43 43 43 / var(--term-opacity, .8)); }
+.embed-layer { --term-bg: rgb(43 43 43 / .8); }
 .embed-window iframe { flex: 1; width: 100%; border: 0; background: var(--term-bg); color-scheme: normal; }
 .embed-window.interacting iframe { pointer-events: none; }
 @media (max-width: 599px) {
@@ -362,46 +342,5 @@ main.busy .device-action:disabled { opacity: 1; cursor: progress; }
   .tab-footer { height: 0; }
 }
 
-/* Liquid glass menus (glass-menu.ts, after liquidglass.dev's <lg-menu>): a light glass body
-   (refracting in Chromium, blurred elsewhere), a spring that unrolls it on open and rolls it back
-   on close (Material removes the panel 200 ms after closing starts), and a hover lens revealing an
-   accent copy of the item. */
-:root { --menu-glass: rgb(255 255 255 / .55); --menu-rim: rgb(255 255 255 / .5); }
-@media (prefers-color-scheme: dark) { :root { --menu-glass: rgb(43 40 51 / .55); --menu-rim: rgb(255 255 255 / .14); } }
-div.mat-mdc-menu-panel.glass-menu {
-  --mat-menu-container-color: transparent;
-  min-width: 220px; overflow: hidden; border-radius: 18px;
-  background: var(--menu-glass);
-  box-shadow: 0 12px 32px rgb(0 0 0 / .18), 0 2px 6px rgb(0 0 0 / .08), inset 0 0 0 1px var(--menu-rim), inset 0 1px 0 var(--menu-rim);
-  transform-origin: top right;
-  animation: glass-menu-open .6s var(--spring) both;
-}
-div.mat-mdc-menu-panel.glass-menu.mat-menu-panel-exit-animation { animation: glass-menu-close .17s cubic-bezier(.4, 0, 1, 1) both; }
-@keyframes glass-menu-open {
-  from { opacity: 0; clip-path: inset(-48px -48px 40% -48px); transform: translateY(-6px) scale(.96); }
-  45% { opacity: 1; }
-  to { opacity: 1; clip-path: inset(-48px); transform: none; }
-}
-@keyframes glass-menu-close {
-  from { opacity: 1; clip-path: inset(-48px); transform: none; }
-  to { opacity: 0; clip-path: inset(-48px -48px 40% -48px); transform: translateY(-4px) scale(.97); }
-}
-.glass-menu .mat-mdc-menu-content { position: relative; padding: 6px 0; }
-/* Tasks card unrolling (Dashboard.toggleTasks): the card's height springs, the board fades in from a blur and melts away on fold. */
+/* Tasks card folding (Dashboard.toggleTasks): its height springs like a folding section, clipped meanwhile. */
 .task-panel.unfolding { overflow: hidden; }
-#task-board { animation: task-board-in .55s var(--spring) both; transform-origin: top center; }
-#task-board.leaving { transition: opacity .2s ease-in, transform .3s ease-in, filter .3s ease-in; opacity: 0; transform: translateY(-8px) scaleY(.97); filter: blur(6px); }
-@keyframes task-board-in {
-  from { opacity: 0; transform: translateY(-10px) scaleY(.96); filter: blur(6px); }
-  to { opacity: 1; transform: none; filter: none; }
-}
-@media (prefers-reduced-motion: reduce) { #task-board { animation: none; } }
-.glass-menu .mat-mdc-menu-item { background: transparent !important; }
-.glass-menu .mat-mdc-menu-item .mat-mdc-menu-item-text, .glass-menu .mat-mdc-menu-submenu-icon { color: var(--ink); }
-.glass-menu .mat-mdc-menu-item .mat-mdc-focus-indicator::before, .glass-menu .mat-mdc-menu-item::after { display: none; }
-.glass-menu__copy { position: absolute; inset: 0; z-index: 2; pointer-events: none; background: var(--primary); color: var(--page); }
-.glass-menu__copy-item { position: absolute; left: 0; right: 0; display: flex; align-items: center; }
-.glass-menu__copy-item .mat-mdc-menu-item-text { color: inherit; }
-@media (prefers-reduced-motion: reduce) {
-  div.mat-mdc-menu-panel.glass-menu, div.mat-mdc-menu-panel.glass-menu.mat-menu-panel-exit-animation { animation-duration: .01s; }
-}

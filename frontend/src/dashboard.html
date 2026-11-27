@@ -13,23 +13,14 @@
     </div>
     <div class="header-tools">
       @if (!editing() && (hiddenCount() || layout().showHidden)) {
-        <label class="glass-switch show-hidden" [class.disabled]="!canArrange()">
-          <span>Show hidden ({{ hiddenCount() }})</span>
-          <span class="gs-control">
-            <input type="checkbox" role="switch" [checked]="layout().showHidden" [disabled]="!canArrange()"
-              (change)="setShowHidden($any($event.target).checked)">
-            <span class="gs-track" aria-hidden="true"></span>
-            <span class="gs-refract" aria-hidden="true"><span class="gs-fill"></span></span>
-            <span class="gs-shadow" aria-hidden="true"></span>
-            <span class="gs-thumb" aria-hidden="true"></span>
-          </span>
-        </label>
+        <mat-slide-toggle class="show-hidden" labelPosition="before" [checked]="layout().showHidden" [disabled]="!canArrange()"
+          (change)="setShowHidden($event.checked)">Show hidden ({{ hiddenCount() }})</mat-slide-toggle>
       }
       @if (session.account; as account) {
         <button mat-button class="account-button" [matMenuTriggerFor]="accountMenu" [attr.aria-label]="'Account: ' + account.username">
           <span class="account-content"><erebor-icon name="user" /><span>{{ account.username }}</span></span>
         </button>
-        <mat-menu #accountMenu="matMenu" xPosition="before" class="glass-menu">
+        <mat-menu #accountMenu="matMenu" xPosition="before">
           @if (account.admin) {
             <button mat-menu-item [disabled]="session.cached()" (click)="session.show('users')"><span class="menu-item"><erebor-icon name="users" />Manage users</span></button>
           }
@@ -215,7 +206,7 @@
           <div class="device-actions">
             @for (action of device.actions; track action.id) {
               <button mat-button class="device-action" [class.off]="action.off"
-                [class.current]="isCurrent(device.id, action)"
+                [class.current]="isCurrent(device.id, action)" [class.pending]="pendingAction() === action.id"
                 [attr.data-action]="action.id" [attr.aria-label]="action.label" [attr.aria-describedby]="device.id + '-detail'"
                 [disabled]="!canExecute(action)" (click)="activate(action)">
                 {{ action.button ?? 'Turn ' + (action.off ? 'off' : 'on') }}

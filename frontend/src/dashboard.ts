@@ -5,9 +5,9 @@ import { A11yModule } from '@angular/cdk/a11y';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatMenuModule } from '@angular/material/menu';
+import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { Action, ApiError, Layout, Section, Settings, TaskBoard, TaskItem, api, availableActions, emptyLayout, resolveServices } from './config';
 import { Icon } from './icon';
-import { createSpring } from './vendor/liquid-glass.js';
 import { Session } from './session';
 import { PasswordDialog } from './users';
 
@@ -58,7 +58,7 @@ function readLocalLayout(): Layout {
 
 @Component({
   selector: 'erebor-dashboard',
-  imports: [Icon, A11yModule, MatButtonModule, MatDialogModule, MatMenuModule,
+  imports: [Icon, A11yModule, MatButtonModule, MatDialogModule, MatMenuModule, MatSlideToggleModule,
     CdkDropList, CdkDrag, CdkDragHandle],
   templateUrl: './dashboard.html',
 })
@@ -176,6 +176,8 @@ export class Dashboard {
   // The device a running command changes: only it shows "Switching…"; the others keep their
   // last state until the refresh after the command replaces all of them at once.
   readonly switching = signal<Device | null>(null);
+  /** The action whose command is in flight; its button shows as pending until the new state arrives. */
+  readonly pendingAction = signal<string | null>(null);
   readonly checkingDevices = signal(false);
   private deviceRequest: AbortController | null = null;
   readonly installPrompt = signal<InstallPrompt | null>(null);
@@ -264,38 +266,39 @@ export class Dashboard {
 
   private readonly injector = inject(Injector);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
-  private tasksAnimating = false;
+  /** The Tasks card's fold or unfold in progress, and what to do once it settles. */
+  private tasksMotion: { animation: Animation; settle: () => void } | null = null;
 
-  // The Tasks card unrolls like the glass menus: its height springs to the new size (the glass,
-  // drawn at the card's rectangle, follows every frame) while the board fades in from a blur;
-  // folding melts the board and rolls the card back to its heading before the board is removed.
+  // The Tasks card folds like a section: its height springs between the heading and the full board
+  // (clipped meanwhile), and an unfolded board slides in like rows uncovered by unfolding a section.
   toggleTasks() {
+    const panel = this.host.nativeElement.querySelector<HTMLElement>('.task-panel');
+    // Start from the height drawn now, including a fold still in motion, which ends here.
+    const from = panel?.getBoundingClientRect().height ?? 0;
+    if (this.tasksMotion) {
+      const { animation, settle } = this.tasksMotion;
+      this.tasksMotion = null;
+      animation.cancel();
+      settle();
+    }
     const folded = !this.tasksFolded();
     const commit = () => {
       this.tasksFolded.set(folded);
       try {
         if (folded) localStorage.removeItem(TASKS_OPEN_KEY); else localStorage.setItem(TASKS_OPEN_KEY, '1');
-      } catch { /* Per-session only. */ }
+      } catch (error) { console.warn('Could not remember the Tasks fold:', error); }
     };
-    const panel = this.host.nativeElement.querySelector<HTMLElement>('.task-panel');
-    if (!panel || reducedMotion() || this.tasksAnimating) { commit(); return; }
-    this.tasksAnimating = true;
-    const from = panel.offsetHeight;
+    if (!panel || reducedMotion()) { commit(); return; }
     const spring = (to: number, done: () => void) => {
       panel.classList.add('unfolding');
-      panel.style.height = `${from}px`;
-      let finished = false;
-      const s = createSpring(from, (value, velocity) => {
-        panel.style.height = `${value}px`;
-        // Visibly settled: finish now rather than when the spring's tail dies out.
-        if (!finished && Math.abs(value - to) < 1 && Math.abs(velocity) < 40) { finished = true; done(); }
-      }, { stiffness: 340, damping: 26 });
-      s.set(to);
-    };
-    const finish = () => {
-      panel.style.height = '';
-      panel.classList.remove('unfolding');
-      this.tasksAnimating = false;
+      const animation = panel.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: 550, easing: SPRING });
+      const settle = () => { panel.classList.remove('unfolding'); done(); };
+      this.tasksMotion = { animation, settle };
+      animation.onfinish = () => {
+        if (this.tasksMotion?.animation !== animation) return;
+        this.tasksMotion = null;
+        settle();
+      };
     };
     if (folded) {
       const heading = panel.querySelector<HTMLElement>('.task-heading');
@@ -303,14 +306,16 @@ export class Dashboard {
       const to = heading
         ? heading.getBoundingClientRect().bottom - panel.getBoundingClientRect().top + parseFloat(getComputedStyle(panel).paddingBottom)
         : from;
-      panel.querySelector('#task-board')?.classList.add('leaving');
-      spring(to, () => { commit(); afterNextRender(finish, { injector: this.injector }); });
+      spring(to, commit);
     } else {
       commit();
       afterNextRender(() => {
-        panel.style.height = '';
-        const to = panel.offsetHeight;
-        spring(to, finish);
+        const to = panel.getBoundingClientRect().height;
+        if (Math.abs(to - from) < 1) return;
+        spring(to, () => {});
+        panel.querySelector('#task-board')?.animate(
+          [{ opacity: 0, translate: '0 -14px', scale: '.97' }, { opacity: 1, translate: '0 0', scale: '1' }],
+          { duration: 480, easing: SPRING, delay: 40, fill: 'backwards' });
       }, { injector: this.injector });
     }
   }
@@ -584,6 +589,7 @@ export class Dashboard {
     this.busy.set(true);
     const device = (['display', 'screen', 'ambilight', 'profile'] as Device[]).find(d => action.id.startsWith(`${d}-`));
     this.switching.set(device ?? null);
+    this.pendingAction.set(action.id);
     if (!device) this.clearDevices();
     this.clearPower();
     const approval = this.settings.approvals?.[action.id] === 'approve';
@@ -615,6 +621,7 @@ export class Dashboard {
       void this.refreshPower();
       await this.refreshDevices(true);
       this.switching.set(null);
+      this.pendingAction.set(null);
     }
   }
 
