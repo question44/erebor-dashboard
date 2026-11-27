@@ -89,6 +89,13 @@ class TaskBoard(unittest.TestCase):
         self.assertTrue(all("\n" not in line for line in self.logs.lines))
         self.assertIn("id=SYS-300 field=status", self.logs.text())
 
+    def test_strict_mode_for_contract_checks(self):
+        tasks.parse_board(BOARD, strict=True)
+        for raw in [{**BOARD, "tasks": [task(1, "lower")]}, {**BOARD, "counts": {"bad": 1}},
+                    {**BOARD, "tasks": [task(n) for n in range(1, 1002)]}]:
+            with self.assertRaises(tasks.BoardShapeError):
+                tasks.parse_board(raw, strict=True)
+
     def test_bad_counts_are_dropped(self):
         board = self.board({**BOARD, "counts": {"OPEN": 2, "bogus": 1, "READY": -1, "ACTIVE": "1"}}).json()
         self.assertEqual(board["counts"], {"OPEN": 2})

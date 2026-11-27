@@ -303,6 +303,9 @@ The command's output (extra fields are ignored and never passed on):
   with `id`, `title`, `status`, `overdue` and optional `review`, `epic`, `kind`,
   `url`; epics add `done` and `total`. Paths must be relative `.md` paths
   without `..` to get a `url`.
+- Contract check for a producer: `python -c 'import json, sys; from
+  control.tasks import parse_board; parse_board(json.load(sys.stdin),
+  strict=True)'` in `api/` fails on anything the API would drop.
 
 ## NanoKVM ATX wake
 

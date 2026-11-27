@@ -81,18 +81,24 @@ def link(path) -> str | None:
     return None
 
 
-def items(raw, model: type[TaskItem], limit: int, kind: str) -> list[TaskItem]:
+def items(raw, model: type[TaskItem], limit: int, kind: str, strict=False) -> list[TaskItem]:
+    if strict and len(raw) > limit:
+        raise BoardShapeError(f"{kind}: {len(raw)} entries, limit {limit}")
     if len(raw) > limit:
         warn_once(f"{kind}-truncated", "task board truncated", list=kind, received=len(raw), kept=limit)
     kept = []
     for entry in raw[:limit]:
         if not isinstance(entry, dict):
+            if strict:
+                raise BoardShapeError(f"{kind}: entry is not an object")
             warn_once(f"{kind}-not-object", "task board entry dropped", list=kind, reason="not an object")
             continue
         fields = {key: entry.get(key) for key in model.model_fields if key != "url"}
         try:
             kept.append(model.model_validate({**fields, "url": link(entry.get("path"))}))
         except ValidationError as exc:
+            if strict:
+                raise BoardShapeError(f"{kind}: {entry.get('id')!r}: {exc.errors()[0]['msg']}") from exc
             first = exc.errors()[0]
             where = ".".join(str(p) for p in first["loc"])
             ident = str(entry.get("id"))[:20]
@@ -133,7 +139,8 @@ def clean_counts(raw: dict) -> dict:
     return counts
 
 
-def parse_board(raw) -> TaskBoard:
+def parse_board(raw, strict=False) -> TaskBoard:
+    """The board from a command's JSON; strict (for contract checks) rejects instead of dropping."""
     if not isinstance(raw, dict):
         raise BoardShapeError("not an object")
     for key, kind in [("counts", dict), ("epics", list), ("tasks", list)]:
@@ -142,8 +149,10 @@ def parse_board(raw) -> TaskBoard:
     if type(raw.get("overdue")) is not int or raw["overdue"] < 0:
         raise BoardShapeError("overdue is not a count")
     counts = clean_counts(raw["counts"])
-    epics = items(raw["epics"], TaskEpic, MAX_EPICS, "epics")
-    tasks = items(raw["tasks"], TaskItem, MAX_TASKS, "tasks")
+    if strict and len(counts) != len(raw["counts"]):
+        raise BoardShapeError("counts: invalid status or count")
+    epics = items(raw["epics"], TaskEpic, MAX_EPICS, "epics", strict)
+    tasks = items(raw["tasks"], TaskItem, MAX_TASKS, "tasks", strict)
     return TaskBoard(counts=counts, statuses=statuses(raw.get("statuses"), counts, [*epics, *tasks]),
                      overdue=raw["overdue"], epics=epics, tasks=tasks)
 
