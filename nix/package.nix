@@ -3,7 +3,7 @@
 
 buildNpmPackage {
   pname = "erebor-dashboard";
-  version = "2.0.0";
+  version = lib.fileContents ../VERSION;
   src = lib.cleanSourceWith {
     src = ../frontend;
     filter = path: _: !(builtins.elem (baseNameOf path) [ "node_modules" "dist" ".angular" ]);

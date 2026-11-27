@@ -1,8 +1,9 @@
 # Erebor dashboard
 
 An Angular Material service dashboard with installable PWA/offline support and
-an optional loopback FastAPI service for desktop controls. Extracted from
-`question44/nixos-config` at `aaef646`.
+an optional loopback FastAPI service for desktop controls. Public repository
+`github:jmmzon/erebor-dashboard`; NixOS configurations consume it as a flake
+input pinned to a revision. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Build and use
 
@@ -13,9 +14,8 @@ Requires Nix with flakes enabled and Linux. The flake exports
 has not been built on hardware.
 
 ```sh
-# Private repository: authenticate to GitHub with SSH first.
-nix build 'git+ssh://git@github.com/question44/erebor-dashboard#dashboard'
-nix build 'git+ssh://git@github.com/question44/erebor-dashboard#control'
+nix build github:jmmzon/erebor-dashboard#dashboard
+nix build github:jmmzon/erebor-dashboard#control
 nix flake check
 ```
 
@@ -27,7 +27,7 @@ The default dashboard has no service cards or controls. Configure it with
 ```nix
 # flake inputs:
 inputs.erebor-dashboard = {
-  url = "git+ssh://git@github.com/question44/erebor-dashboard";
+  url = "github:jmmzon/erebor-dashboard";
   inputs.nixpkgs.follows = "nixpkgs";
 };
 
@@ -100,19 +100,41 @@ desktop user, `control.allowedHosts` to dashboard hostnames, and
 IDs to `settings.actions` to display buttons. Disabled API actions return 403.
 No actions are permitted by default, including when running the command directly.
 
-Available actions: `display-on`, `display-off`, `ambilight-on`, `ambilight-off`,
-`profile-performance`, `profile-balanced`, `profile-power-saver`, `sleep`, `power-off`,
-`reboot-windows`, `moonshine-pair`. Profile actions set power-profiles-daemon's
-`ActiveProfile` over D-Bus; grant the control user
-`org.freedesktop.UPower.PowerProfiles.switch-profile` in polkit, because the API
-runs outside an active session. Supply compositor packages through
-`control.extraPackages` for Niri, Umbriel, or Mango. Ambilight requires local
-HyperHDR on port 19444 and `control.wledUrl`. `reboot-windows` calls
-`dashboard-reboot-windows.service`; the host must provide its privileged helper
-and authorization. This repository does not install boot-changing helpers or
-Polkit grants. Sleep/power-off depend on the host's login1 authorization policy.
+Every action is listed once in [`actions.json`](actions.json) (id, label, kind,
+whether it asks for confirmation, and the endpoint the browser sends it to); the
+API reads it at startup and the module derives `enabledActions`' type from it.
+API actions: `display-on`, `display-off`, `screen-dp`, `screen-hdmi`,
+`ambilight-on`, `ambilight-off`, `profile-performance`, `profile-balanced`,
+`profile-power-saver`, `sleep`, `power-off`, `reboot-windows`, `moonshine-pair`
+(`wake` runs in the browser, see NanoKVM below).
 
-The module runs a user service on **127.0.0.1:18090**. A reverse proxy must route
+- **Display and screen** actions go through a compositor adapter chosen by the
+  session's `XDG_CURRENT_DESKTOP` (read from the user manager on each request).
+  `api/control/compositors/` has a small interface (`outputs()`,
+  `set_power(output, on)`, `screen_mode()`, `set_screen_mode(mode)`) and one
+  adapter, Umbriel (`umbriel outputs --json`, `umbriel msg dpms-on|off`,
+  `umbriel-display-mode`). Another compositor is one new module listed in
+  `compositors.ADAPTERS`. Supply the compositor's commands through
+  `control.extraPackages`. `control.ignoredOutputs` names virtual outputs
+  (capture or streaming) that are never switched or counted;
+  `control.screenModes` maps the screen switcher's modes to card labels.
+- **Profile** actions set power-profiles-daemon's `ActiveProfile` over D-Bus;
+  grant the control user `org.freedesktop.UPower.PowerProfiles.switch-profile` in
+  polkit, because the API runs outside an active session.
+- **Ambilight** needs `control.wledUrl` and HyperHDR's JSON API at
+  `control.hyperhdrAddress` (default `127.0.0.1:19444`).
+- **Sleep/power-off** call login1 and depend on the host's authorization
+  policy. **`reboot-windows`** starts `dashboard-reboot-windows.service`; the
+  host must provide that privileged helper and its authorization. This
+  repository does not install boot-changing helpers or polkit grants.
+- **System control daemon:** with `control.systemDaemon` set to an erebor-sysd
+  socket, the profile, sleep, power-off and Windows actions are sent to that
+  daemon instead, which applies its policy and may ask the owner to approve
+  (phone, security key, Mac). `GET /api/control/config` then lists the actions
+  that need approval under `approvals`. Without it they run directly as above;
+  both paths go through one function (`actions.perform`).
+
+The module runs a user service on **127.0.0.1:18090** (`control.port`). A reverse proxy must route
 `/api/control*` there and restrict access to trusted networks, for example inside
 the Caddy virtual host before `file_server`:
 
@@ -140,8 +162,72 @@ whether the PIN was correct.
 
 Keep the network restriction: it also protects the first-run setup page.
 The API requires matching Host/Origin, JSON, and `X-Erebor-Control: 1` for
-POST/PUT/DELETE, bounds bodies (256 bytes for actions, 4 KiB for accounts),
-and disables caching.
+POST/PUT/DELETE, bounds bodies (256 bytes for actions, 2 KiB for client
+reports, 4 KiB for accounts), and disables caching.
+
+`GET /api/control/status` reads the session environment once, runs its probes
+concurrently, and shares the result between clients for `DASHBOARD_STATUS_TTL`
+seconds (default 2); an action clears it.
+
+### Errors
+
+Failures are JSON `{"error": "<sentence>", "code": "<code>"}`. The sentence is
+for people and may change; the code is stable. Refusals are 403, unavailable
+services 503, timeouts 504.
+
+| Code | Status | Meaning |
+|---|---|---|
+| `disabled`, `not-permitted` | 403 | Action not enabled on this host / not granted to this account |
+| `forbidden` | 403 | The system control daemon's policy refuses the action |
+| `approval-denied` | 403 | The owner declined the approval |
+| `approval-timeout` | 403 | Nobody approved in time |
+| `approval-cancelled` | 403 | The approval request was cancelled |
+| `approval-unavailable` | 403 | No approval method is reachable (approvald's `no-method`) |
+| `approval-busy` | 403 | Another approval is still waiting |
+| `approval-rate-limited` | 403 | Too many approval requests |
+| `approval-forbidden`, `approval-bad-request`, `approval-failed` | 403 | The approval service refused or failed |
+| `no-session` | 503 | The daemon has no desktop session to act in |
+| `session-timeout` | 504 | The desktop session did not answer the daemon |
+| `unavailable` | 503 | The daemon does not offer this action on this machine |
+| `sysd-bad-request` | 502 | The daemon did not understand the request |
+| `sysd-failed` | 503 | The daemon could not complete the action |
+| `sysd-permission` | 503 | The service's user is not (yet) in the socket's group: log out and in, or reboot |
+| `sysd-down`, `sysd-unreachable` | 503 | The daemon is not running / cannot be reached |
+| `sysd-timeout` | 504 | The daemon did not answer in time |
+| `no-desktop`, `no-display`, `unsupported` | 503 | No supported compositor, no physical display, or no screen switcher |
+| `wled-unreachable`, `wled-rejected`, `hyperhdr-unreachable`, `hyperhdr-rejected`, `not-configured` | 503 | Ambilight hardware problems |
+| `timeout` | 504 | A local command did not finish in time |
+| `failed` | 503 | Anything else (details only in the service log) |
+| `no-client`, `moonshine-unreachable` | 409, 503 | Moonlight pairing: nothing waiting / Moonshine down |
+| `tasks-unavailable` | 503 | The task board command failed or printed something else |
+| `rate-limited` | 429 | Too many client error reports |
+
+Validation errors keep their plain `{"error": "Invalid action"}` (or
+`"Invalid request"`) with status 400.
+
+### Logging
+
+The service logs single lines (`logger: message key=value ...`) to stderr; under
+systemd each line carries a syslog priority, so `journalctl --user -u
+dashboard-control -p warning` shows only problems. `control.logLevel`
+(`DASHBOARD_LOG_LEVEL`, default `INFO`) sets the level.
+
+- `dashboard.access`: every mutating request and every non-2xx response, with
+  method, path, status, duration and account. Successful polls appear only at
+  `DEBUG`.
+- `dashboard.audit`: sign-in success, failure and lockout (with the proxy's
+  client address), first-run setup, logout, password changes, account
+  creation/update/deletion, every action (result `ok`, `refused` or `failed`,
+  code, path `direct` or `sysd`, duration) and Moonlight pairing attempts.
+  Passwords and PINs are never logged.
+- `dashboard`: failures with a reason; a condition that repeats on every
+  refresh (such as a broken task board) is logged once an hour. Tracebacks only
+  appear for unexpected errors, at `ERROR`.
+- `dashboard.client`: frontend errors reported by signed-in browsers to
+  `POST /api/control/client-log` with `{"message", "kind"?: "error" |
+  "unhandledrejection" | "http" | "other", "source"?, "line"?, "column"?,
+  "stack"?}` (≤ 2 KiB, 5 at once then 10 a minute per account, 60 a minute
+  overall; fields are cut short and control characters removed), at `WARNING`.
 
 ### Users
 
@@ -169,22 +255,54 @@ URLs are served per user by `GET /api/control/config` after sign-in.
   dashboard still work while the host sleeps. Signing out clears it.
 Status, OpenAPI and Swagger UI are under `/api/control/`.
 
-The standalone command accepts environment variables `DASHBOARD_HOSTS` and
-`DASHBOARD_ACTIONS` (comma-separated), and `DASHBOARD_WLED_URL`.
+The standalone command (`erebor-dashboard-control`, or `python -m control` in
+`api/`) reads its settings from the environment, which the module sets from its
+options: `DASHBOARD_HOSTS` and `DASHBOARD_ACTIONS` (comma-separated),
+`DASHBOARD_PORT`, `DASHBOARD_LOG_LEVEL`, `DASHBOARD_SETTINGS` (JSON file),
+`DASHBOARD_STATE_DIR`, `DASHBOARD_WLED_URL`, `DASHBOARD_HYPERHDR`,
+`DASHBOARD_IGNORED_OUTPUTS`, `DASHBOARD_SCREEN_MODES` (JSON object),
+`DASHBOARD_MOONSHINE_URL`, `DASHBOARD_TASKS_COMMAND` (JSON argv),
+`DASHBOARD_TASKS_LINK_BASE`, `DASHBOARD_MODES_STATE` and `DASHBOARD_SYSD_SOCKET`.
 
 ### Task board
 
 Set `control.tasks.command` to a command (argv) that prints a task board as JSON,
 and optionally `control.tasks.linkBase` to a URL prefix for its task paths.
-Administrators then get a read-only **Tasks** card, folded by default to one summary line (unfolding is remembered per device): counts of active, open and
-in-review tasks, overdue reviews, epic progress, and the active or overdue tasks
+Administrators then get a read-only **Tasks** card, folded by default to one summary line (unfolding is remembered per device): counts per status,
+overdue reviews, epic progress, and the active or overdue tasks
 (all open tasks on request), each linking to `linkBase` + its path. Other accounts
 neither see the card nor can read `GET /api/control/tasks` (403). The API runs the
-command on each refresh (every minute while visible, 10-second timeout) and returns
-only these fields: `counts` (`ACTIVE`, `OPEN`, `REVIEW`), `overdue`, and `epics` and
-`tasks` entries with `id`, `title`, `status`, `overdue`, `path` and optional `review`,
-`epic`, `kind`; epics add `done` and `total`. Paths must be relative `.md` paths
-without `..` to get a link.
+command on each refresh (every minute while visible, 10-second timeout).
+
+The command's output (extra fields are ignored and never passed on):
+
+```json
+{
+  "schema": 1,
+  "statuses": [{"id": "ACTIVE", "label": "Active"}, {"id": "READY", "label": "Ready"}],
+  "counts": {"ACTIVE": 1, "READY": 2, "OPEN": 5},
+  "overdue": 1,
+  "epics": [{"id": "ABC-1", "title": "…", "status": "OPEN", "path": "tasks/ABC-1.md",
+             "overdue": false, "review": "2026-01-31", "done": 2, "total": 6}],
+  "tasks": [{"id": "ABC-2", "title": "…", "status": "READY", "path": "tasks/ABC-2.md",
+             "overdue": false, "review": "2026-01-31", "epic": "ABC-1", "kind": "…"}]
+}
+```
+
+- A status is any id matching `^[A-Z][A-Z_-]{0,15}$`; a new status never
+  breaks the board. `statuses` (optional) gives the display order and labels;
+  without it the order of `counts` is used and labels are derived (`ON_HOLD` →
+  "On hold"). The response always has `statuses`, covering every status in
+  `counts` and the tasks. Clients must render unknown statuses generically.
+- Each entry is validated on its own: an invalid one (bad id, unknown field
+  type, title over 200 characters) is dropped and logged once. Lists are cut at
+  1000 tasks, 100 epics and 32 statuses. Only a wrong top-level shape (no
+  object, `counts` not an object, `epics`/`tasks` not lists, `overdue` not a
+  count) makes the endpoint answer 503 (`tasks-unavailable`).
+- Returned fields: `counts`, `statuses`, `overdue`, and `epics`/`tasks` entries
+  with `id`, `title`, `status`, `overdue` and optional `review`, `epic`, `kind`,
+  `url`; epics add `done` and `total`. Paths must be relative `.md` paths
+  without `..` to get a `url`.
 
 ## NanoKVM ATX wake
 
@@ -290,25 +408,19 @@ GPIO and HTTP boundary tests (also included in flake checks). To disable:
 permission. NanoKVM reboots start the helper through the init script; Serve's
 background configuration persists. Firmware updates may require redeployment.
 
-## Development and submodule workflow
+## Development
 
-Frontend sources are in `frontend/`, API and mocked action tests in `api/`, and
-Nix definitions in `nix/`. Run `npm ci && npm run build` inside `frontend/` for a
-non-Nix frontend build. `nix flake check` builds the default frontend and runs
-API tests without issuing system commands. Review package-lock changes and
-update `npmDepsHash` when changing dependencies.
+Frontend sources are in `frontend/`, the API package and its tests in `api/`
+(`api/control/`, one module per concern: `boundary` middleware, `accounts`,
+`layout`, `tasks`, `moonshine`, `status`, `actions`, `clientlog`, the
+integrations `display`, `power`, `ambilight`, `modes`, `sysd` and the
+`compositors` adapters), and Nix definitions in `nix/`. Run `npm ci && npm run
+build` inside `frontend/` for a non-Nix frontend build. `nix flake check` builds
+the default frontend, runs the API tests (`python -m unittest discover -s api`)
+without issuing system commands, and evaluates the NixOS module. Review
+package-lock changes and update `npmDepsHash` when changing dependencies. The
+version for both packages and the API is in `VERSION`.
 
-In the NixOS parent repository:
-
-```sh
-git clone --recurse-submodules git@github.com:question44/nixos-config.git
-# In an existing checkout:
-git submodule update --init --recursive
-# Edit apps/erebor-dashboard, commit and push there first, then:
-git add apps/erebor-dashboard
-git commit -m "Update dashboard submodule"
-```
-
-The parent uses `inputs.self.submodules = true` (a recent Nix version is needed)
-and a relative path flake input following its own nixpkgs. The Git submodule pins
-the source revision; parent flake updates do not independently advance it.
+A NixOS configuration takes this repository as a flake input pinned to a
+commit: push here, then update the consumer's input (`nix flake update
+erebor-dashboard`, or the revision in its `flake.nix`) and rebuild.

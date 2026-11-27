@@ -2,10 +2,15 @@
 let
   cfg = config.services.erebor-dashboard;
   settingsFormat = pkgs.formats.json { };
-  actionType = lib.types.enum [ "display-on" "display-off" "screen-dp" "screen-hdmi" "ambilight-on" "ambilight-off"
-    "profile-performance" "profile-balanced" "profile-power-saver" "sleep" "power-off" "reboot-windows" "moonshine-pair" ];
+  # Every action the API can run, from the shared catalog (wake runs in the browser).
+  catalog = builtins.fromJSON (builtins.readFile ../actions.json);
+  actionType = lib.types.enum (map (a: a.id) (lib.filter (a: a.endpoint != null) catalog.actions));
 in
 {
+  imports = [
+    (lib.mkRemovedOptionModule [ "services" "erebor-dashboard" "control" "sequoiaData" ]
+      "The Sequoia page background was removed from the dashboard.")
+  ];
   options.services.erebor-dashboard = {
     enable = lib.mkEnableOption "the Erebor dashboard package";
     package = lib.mkOption {
@@ -42,10 +47,44 @@ in
         default = [ ];
         description = "Actions the API may execute. Windows reboot needs a separately supplied privileged helper.";
       };
+      port = lib.mkOption {
+        type = lib.types.port;
+        default = 18090;
+        description = "Loopback port the API listens on; point the reverse proxy's /api/control at it.";
+      };
+      logLevel = lib.mkOption {
+        type = lib.types.enum [ "DEBUG" "INFO" "WARNING" "ERROR" ];
+        default = "INFO";
+        description = ''
+          Log level. INFO logs every mutating request, every non-2xx response and the audit
+          records (sign-ins, account changes, actions); DEBUG also logs successful polls.
+        '';
+      };
       wledUrl = lib.mkOption {
         type = lib.types.nullOr lib.types.str;
         default = null;
-        description = "WLED HTTP URL; HyperHDR is expected on loopback port 19444.";
+        description = "WLED HTTP URL for the Ambilight actions and card.";
+      };
+      hyperhdrAddress = lib.mkOption {
+        type = lib.types.str;
+        default = "127.0.0.1:19444";
+        description = "host:port of HyperHDR's JSON API, which feeds the WLED LEDs.";
+      };
+      ignoredOutputs = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [ "ambilight" "sunshine" ];
+        description = ''
+          Compositor outputs that are not physical screens (capture or streaming outputs);
+          display actions leave them alone and the display card does not count them.
+        '';
+      };
+      screenModes = lib.mkOption {
+        type = lib.types.attrsOf lib.types.str;
+        default = { dp = "DP-1"; hdmi = "HDMI"; };
+        description = ''
+          Screen switcher modes (the compositor adapter's mode ids, `screen-<id>` actions) and
+          the label the screen card shows for each.
+        '';
       };
       moonshineUrl = lib.mkOption {
         type = lib.types.str;
@@ -68,15 +107,6 @@ in
           example = "https://github.com/owner/repo/blob/master/";
           description = "URL prefix for the board's repository-relative task paths; empty means no links.";
         };
-      };
-      sequoiaData = lib.mkOption {
-        type = lib.types.nullOr lib.types.str;
-        default = null;
-        example = "/home/alice/.local/share/sequoia/web.json";
-        description = ''
-          Path (read at request time, not copied into the store) of the Sequoia wallpaper data
-          for the "Sequoia" page background, served to signed-in users. Null hides it.
-        '';
       };
       modesState = lib.mkOption {
         type = lib.types.nullOr lib.types.str;
@@ -101,7 +131,7 @@ in
       extraPackages = lib.mkOption {
         type = lib.types.listOf lib.types.package;
         default = [ ];
-        description = "Compositor command packages used by display actions.";
+        description = "Compositor command packages used by display actions (e.g. umbriel and its screen switcher).";
       };
     };
   };
@@ -119,11 +149,14 @@ in
         DASHBOARD_ACTIONS = lib.concatStringsSep "," cfg.control.enabledActions;
         DASHBOARD_MOONSHINE_URL = cfg.control.moonshineUrl;
         DASHBOARD_SETTINGS = settingsFormat.generate "erebor-dashboard-settings.json" cfg.settings;
+        DASHBOARD_PORT = toString cfg.control.port;
+        DASHBOARD_LOG_LEVEL = cfg.control.logLevel;
+        DASHBOARD_HYPERHDR = cfg.control.hyperhdrAddress;
+        DASHBOARD_IGNORED_OUTPUTS = lib.concatStringsSep "," cfg.control.ignoredOutputs;
+        DASHBOARD_SCREEN_MODES = builtins.toJSON cfg.control.screenModes;
       } // lib.optionalAttrs (cfg.control.tasks.command != null) {
         DASHBOARD_TASKS_COMMAND = builtins.toJSON cfg.control.tasks.command;
         DASHBOARD_TASKS_LINK_BASE = cfg.control.tasks.linkBase;
-      } // lib.optionalAttrs (cfg.control.sequoiaData != null) {
-        DASHBOARD_SEQUOIA_DATA = cfg.control.sequoiaData;
       } // lib.optionalAttrs (cfg.control.modesState != null) {
         DASHBOARD_MODES_STATE = cfg.control.modesState;
       } // lib.optionalAttrs (cfg.control.systemDaemon != null) {
@@ -131,7 +164,7 @@ in
       } // lib.optionalAttrs (cfg.control.wledUrl != null) {
         DASHBOARD_WLED_URL = cfg.control.wledUrl;
       };
-      path = [ pkgs.systemd pkgs.wlopm ] ++ cfg.control.extraPackages;
+      path = [ pkgs.systemd ] ++ cfg.control.extraPackages;
       serviceConfig = {
         ExecStart = lib.getExe cfg.control.package;
         # Accounts and sessions: ~/.local/state/erebor-dashboard/users.sqlite3

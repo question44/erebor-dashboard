@@ -14,6 +14,33 @@
         });
       checks = forAllSystems (system: let pkgs = import nixpkgs { inherit system; }; in {
         inherit (self.packages.${system}) dashboard control;
+        # The module evaluates, and its option type follows the action catalog.
+        module = let
+          system' = nixpkgs.lib.nixosSystem {
+            inherit system;
+            modules = [
+              self.nixosModules.default
+              {
+                boot.loader.grub.enable = false;
+                fileSystems."/".device = "none";
+                system.stateVersion = "26.05";
+                services.erebor-dashboard = {
+                  enable = true;
+                  package = pkgs.emptyDirectory;
+                  control = {
+                    enable = true;
+                    user = "alice";
+                    enabledActions = [ "display-on" "reboot-windows" "moonshine-pair" ];
+                  };
+                };
+              }
+            ];
+          };
+          env = system'.config.systemd.user.services.dashboard-control.environment;
+        in pkgs.writeText "module-eval.json" (builtins.toJSON {
+          inherit (env) DASHBOARD_ACTIONS DASHBOARD_PORT DASHBOARD_LOG_LEVEL DASHBOARD_SCREEN_MODES
+            DASHBOARD_IGNORED_OUTPUTS DASHBOARD_HYPERHDR;
+        });
         nanokvm-wake = pkgs.runCommand "nanokvm-wake-tests" { nativeBuildInputs = [ pkgs.python3 ]; } ''
           cp -r ${./nanokvm} source
           chmod -R u+w source

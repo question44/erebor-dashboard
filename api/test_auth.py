@@ -1,8 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-import auth
-import control
+from control import access, actions, auth, settings
 from fixtures import HEADERS, isolated_store, setup_admin
 
 
@@ -22,7 +21,7 @@ class FirstRun(unittest.TestCase):
         again = self.client.post("/api/control/auth/setup", headers=HEADERS,
                                  json={"username": "intruder", "password": "another password"})
         self.assertEqual(again.status_code, 409)
-        self.assertEqual([u["username"] for u in control.store().users()], ["owner"])
+        self.assertEqual([u["username"] for u in access.store().users()], ["owner"])
 
     def test_setup_validates_input_and_origin(self):
         for body in [{"username": "admin", "password": "short"}, {"username": "Bad Name!", "password": "long enough"},
@@ -31,7 +30,7 @@ class FirstRun(unittest.TestCase):
         cross = self.client.post("/api/control/auth/setup", json={"username": "a", "password": "long enough"},
                                  headers={**HEADERS, "Origin": "https://attacker.example"})
         self.assertEqual(cross.status_code, 403)
-        self.assertTrue(control.store().setup_required())
+        self.assertTrue(access.store().setup_required())
 
     def test_secure_cookie_behind_https_proxy(self):
         response = self.client.post("/api/control/auth/setup", json={"username": "a", "password": "long enough"},
@@ -55,12 +54,12 @@ class Accounts(unittest.TestCase):
 
     def test_admin_sees_everything(self):
         config = self.client.get("/api/control/config").json()
-        self.assertEqual(config["actions"], control.SETTINGS["actions"])
+        self.assertEqual(config["actions"], settings.SETTINGS["actions"])
         self.assertEqual([s["id"] for s in config["services"]], ["media", "code"])
         self.assertIn("outletUrl", config)
         self.assertTrue(config["hostStatus"])
 
-    @patch.object(control, "action")
+    @patch.object(actions, "perform")
     def test_permissions_filter_config_and_enforce_actions(self, action):
         self.assertEqual(self.add(permissions={"modules": ["quick-actions", "services"], "services": ["media", "nope"],
                                                "actions": ["display-on", "wake", "unknown"]}).status_code, 200)

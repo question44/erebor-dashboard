@@ -45,9 +45,16 @@ class AuthError(Exception):
         self.status = status
 
 
+# Each scrypt hash holds 128 * r * n bytes (32 MiB) while it runs; at most two run
+# at once so a burst of sign-ins cannot grow memory without bound.
+HASHING = threading.BoundedSemaphore(2)
+MAXMEM = 64 * 1024 * 1024
+
+
 def hash_password(password: str) -> str:
     salt = secrets.token_bytes(16)
-    digest = hashlib.scrypt(password.encode(), salt=salt, maxmem=64 * 1024 * 1024, dklen=32, **SCRYPT)
+    with HASHING:
+        digest = hashlib.scrypt(password.encode(), salt=salt, maxmem=MAXMEM, dklen=32, **SCRYPT)
     encode = lambda value: base64.b64encode(value).decode()
     return f"scrypt${SCRYPT['n']}${SCRYPT['r']}${SCRYPT['p']}${encode(salt)}${encode(digest)}"
 
@@ -58,14 +65,16 @@ def verify_password(password: str, stored: str) -> bool:
         if scheme != "scrypt":
             return False
         expected = base64.b64decode(digest)
-        actual = hashlib.scrypt(password.encode(), salt=base64.b64decode(salt), n=int(n), r=int(r), p=int(p),
-                                maxmem=64 * 1024 * 1024, dklen=len(expected))
+        with HASHING:
+            actual = hashlib.scrypt(password.encode(), salt=base64.b64decode(salt), n=int(n), r=int(r), p=int(p),
+                                    maxmem=MAXMEM, dklen=len(expected))
         return hmac.compare_digest(actual, expected)
     except (ValueError, TypeError):
         return False
 
 
-# Equalizes timing between unknown users and wrong passwords.
+# Equalizes timing between unknown users and wrong passwords. Its 32 MiB scrypt
+# buffer is a large allocation glibc returns to the system once the hash is done.
 DUMMY_HASH = hash_password(secrets.token_hex(16))
 
 
@@ -169,6 +178,8 @@ class Store:
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.throttle = Throttle()
         with closing(sqlite3.connect(self.path)) as db:
+            # Readers (every poll) never wait for a writer; the setting persists in the file.
+            db.execute("PRAGMA journal_mode = WAL")
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS users (
                     username TEXT PRIMARY KEY,
@@ -190,11 +201,13 @@ class Store:
         os.chmod(self.path, 0o600)
 
     @contextmanager
-    def connect(self):
+    def connect(self, write=True):
+        """A transaction: IMMEDIATE (takes the write lock first) for writes, a plain read otherwise."""
         with closing(sqlite3.connect(self.path, timeout=10, isolation_level=None)) as db:
             db.row_factory = sqlite3.Row
             db.execute("PRAGMA foreign_keys = ON")
-            db.execute("BEGIN IMMEDIATE")
+            db.execute("PRAGMA synchronous = NORMAL")
+            db.execute("BEGIN IMMEDIATE" if write else "BEGIN")
             try:
                 yield db
             except BaseException:
@@ -208,7 +221,7 @@ class Store:
                 "permissions": json.loads(row["permissions"])}
 
     def setup_required(self) -> bool:
-        with self.connect() as db:
+        with self.connect(write=False) as db:
             return db.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
 
     def _new_session(self, db, username: str) -> str:
@@ -240,7 +253,7 @@ class Store:
         wait = self.throttle.retry_after(username)
         if wait:
             raise AuthError(f"Too many attempts. Try again in {wait} seconds.", 429)
-        with self.connect() as db:
+        with self.connect(write=False) as db:
             row = db.execute("SELECT password FROM users WHERE username = ?", (username,)).fetchone()
         if not verify_password(password, row["password"] if row else DUMMY_HASH) or not row:
             self.throttle.failed(username)
@@ -254,18 +267,21 @@ class Store:
         if not token or len(token) > 128:
             return None, False
         now = time.time()
-        with self.connect() as db:
+        with self.connect(write=False) as db:
             row = db.execute("""SELECT users.*, sessions.expires FROM sessions JOIN users USING (username)
                                 WHERE sessions.token = ? AND sessions.expires > ?""", (token_hash(token), now)).fetchone()
-            if not row:
-                return None, False
-            renew = row["expires"] - now < SESSION_SECONDS - SESSION_RENEW_SECONDS
-            if renew:
-                db.execute("UPDATE sessions SET expires = ? WHERE token = ?", (now + SESSION_SECONDS, token_hash(token)))
-            return self._user(row), renew
+        if not row:
+            return None, False
+        renew = row["expires"] - now < SESSION_SECONDS - SESSION_RENEW_SECONDS
+        if renew:
+            with self.connect() as db:
+                # Only a session that still exists is renewed (a logout may have raced this).
+                renew = bool(db.execute("UPDATE sessions SET expires = ? WHERE token = ? AND expires > ?",
+                                        (now + SESSION_SECONDS, token_hash(token), now)).rowcount)
+        return self._user(row), renew
 
     def layout(self, username) -> dict:
-        with self.connect() as db:
+        with self.connect(write=False) as db:
             row = db.execute("SELECT layout FROM users WHERE username = ?", (username,)).fetchone()
         try:
             stored = json.loads(row["layout"]) if row else {}
@@ -285,13 +301,16 @@ class Store:
                               (json.dumps(clean), username)).rowcount:
                 raise AuthError("User not found", 404)
 
-    def logout(self, token):
-        if token:
-            with self.connect() as db:
-                db.execute("DELETE FROM sessions WHERE token = ?", (token_hash(token),))
+    def logout(self, token) -> str | None:
+        """End a session; returns its account, if it was signed in."""
+        if not token or len(token) > 128:
+            return None
+        with self.connect() as db:
+            rows = db.execute("DELETE FROM sessions WHERE token = ? RETURNING username", (token_hash(token),)).fetchall()
+        return rows[0]["username"] if rows else None
 
     def users(self) -> list:
-        with self.connect() as db:
+        with self.connect(write=False) as db:
             return [self._user(row) for row in db.execute("SELECT * FROM users ORDER BY username")]
 
     def create(self, username, password, admin, permissions):
@@ -325,7 +344,7 @@ class Store:
                            (username, token_hash(keep_token or "")))
 
     def change_password(self, username, current, new, keep_token):
-        with self.connect() as db:
+        with self.connect(write=False) as db:
             row = db.execute("SELECT password FROM users WHERE username = ?", (username,)).fetchone()
         if not row or not isinstance(current, str) or not verify_password(current, row["password"]):
             raise AuthError("Current password is incorrect", 403)

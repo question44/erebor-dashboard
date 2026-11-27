@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "description": "Every dashboard action. endpoint: where the browser sends it (null: the browser calls NanoKVM itself). confirm: ask before sending. kind: the device card it belongs to. Read by the control API at startup and by nix/module.nix for the enabledActions type.",
+  "actions": [
+    { "id": "wake", "label": "Wake up", "kind": "power", "confirm": false, "endpoint": null },
+    { "id": "display-on", "label": "Display on", "kind": "display", "confirm": false, "endpoint": "/api/control" },
+    { "id": "display-off", "label": "Display off", "kind": "display", "confirm": false, "endpoint": "/api/control" },
+    { "id": "screen-dp", "label": "Show on DisplayPort", "kind": "screen", "confirm": false, "endpoint": "/api/control" },
+    { "id": "screen-hdmi", "label": "Show on HDMI", "kind": "screen", "confirm": false, "endpoint": "/api/control" },
+    { "id": "ambilight-on", "label": "Ambilight on", "kind": "ambilight", "confirm": false, "endpoint": "/api/control" },
+    { "id": "ambilight-off", "label": "Ambilight off", "kind": "ambilight", "confirm": false, "endpoint": "/api/control" },
+    { "id": "profile-power-saver", "label": "Power saver profile", "kind": "profile", "confirm": false, "endpoint": "/api/control" },
+    { "id": "profile-balanced", "label": "Balanced profile", "kind": "profile", "confirm": false, "endpoint": "/api/control" },
+    { "id": "profile-performance", "label": "Performance profile", "kind": "profile", "confirm": false, "endpoint": "/api/control" },
+    { "id": "moonshine-pair", "label": "Moonlight pairing", "kind": "moonshine", "confirm": false, "endpoint": "/api/control/moonshine/pair" },
+    { "id": "sleep", "label": "Sleep", "kind": "power", "confirm": true, "endpoint": "/api/control" },
+    { "id": "reboot-windows", "label": "Reboot to Windows", "kind": "power", "confirm": true, "endpoint": "/api/control" },
+    { "id": "power-off", "label": "Power off", "kind": "power", "confirm": true, "endpoint": "/api/control" }
+  ]
+}
