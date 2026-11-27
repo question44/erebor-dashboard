@@ -175,7 +175,8 @@ export class UserEditor {
   readonly data: EditorData = inject(MAT_DIALOG_DATA);
   readonly ref = inject(MatDialogRef<UserEditor>);
   readonly moduleInfo = MODULES;
-  readonly label = actionLabel;
+  private readonly screens = inject(Session).settings()?.screens;
+  readonly label = (id: string) => actionLabel(id, this.screens);
   readonly isSelf = this.data.user?.username === this.data.self;
   readonly busy = signal(false);
   readonly error = signal('');

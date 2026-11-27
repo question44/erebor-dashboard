@@ -4,10 +4,15 @@
 buildNpmPackage {
   pname = "erebor-dashboard";
   version = lib.fileContents ../VERSION;
+  # frontend/ plus the action catalog it imports (../../actions.json from src/).
   src = lib.cleanSourceWith {
-    src = ../frontend;
-    filter = path: _: !(builtins.elem (baseNameOf path) [ "node_modules" "dist" ".angular" ]);
+    src = ../.;
+    filter = path: _: let
+      rel = lib.removePrefix (toString ../. + "/") (toString path);
+    in rel == "actions.json" || rel == "frontend"
+      || (lib.hasPrefix "frontend/" rel && !(builtins.elem (baseNameOf path) [ "node_modules" "dist" ".angular" ]));
   };
+  sourceRoot = "source/frontend";
   npmDepsHash = "sha256-ZSDdaAGB7CU8hHVvXC9+zxORO5EABR9S872LPQKjr2w=";
   nativeBuildInputs = [ autoPatchelfHook ];
   buildInputs = [ stdenv.cc.cc.lib ];

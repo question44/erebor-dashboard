@@ -10,7 +10,8 @@
     "strict": true,
     "experimentalDecorators": true,
     "skipLibCheck": true,
-    "isolatedModules": true
+    "isolatedModules": true,
+    "resolveJsonModule": true
   },
   "angularCompilerOptions": {
     "strictTemplates": true,

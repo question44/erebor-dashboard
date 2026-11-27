@@ -1,5 +1,5 @@
 """The action catalog (actions.json): one list of action ids for the API, the
-Nix module's option type and, later, the frontend."""
+Nix module's option type and the frontend build."""
 
 import json
 

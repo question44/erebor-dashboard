@@ -63,7 +63,7 @@ export class Session {
           this.view.set({ kind: 'dashboard' });
         }
       } else {
-        this.view.set({ kind: 'unavailable', message: error instanceof ApiError && error.status === 403
+        this.view.set({ kind: 'unavailable', message: error instanceof ApiError && error.explained
           ? error.message : `Could not reach ${this.publicSettings.title}. It may be asleep, powered off, or running another operating system.` });
       }
       this.retry = window.setTimeout(() => void this.check(), 15000);

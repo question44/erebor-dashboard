@@ -6,6 +6,11 @@ import { ErrorHandler, Injectable } from '@angular/core';
 const ENDPOINT = '/api/control/client-log';
 const LIMIT = 5;
 const WINDOW_MS = 60000;
+// The API's limits: it cuts message, source and stack to these lengths and refuses bodies over 2 KiB.
+const MAX = { message: 300, source: 200, stack: 600 };
+const MAX_BODY = 2048;
+const MAX_POSITION = 10_000_000;
+type Kind = 'error' | 'unhandledrejection' | 'http' | 'other';
 
 const sent: number[] = [];
 let enabled: () => boolean = () => false;
@@ -19,24 +24,39 @@ function describe(error: unknown) {
   try { return JSON.stringify(error) ?? String(error); } catch { return String(error); }
 }
 
-export function reportError(error: unknown, where: { source?: string; line?: number; column?: number } = {}) {
+const position = (value?: number) => Number.isInteger(value) ? Math.min(Math.max(value!, 0), MAX_POSITION) : 0;
+
+/** The report as JSON within the body limit: non-ASCII text or escapes can make it longer than its characters. */
+function encode(report: { kind: Kind; message: string; source: string; line: number; column: number; stack: string }) {
+  let body = JSON.stringify(report);
+  for (const field of ['stack', 'source', 'message'] as const) {
+    while (new TextEncoder().encode(body).length > MAX_BODY && report[field]) {
+      report[field] = report[field].slice(0, Math.floor(report[field].length / 2));
+      body = JSON.stringify(report);
+    }
+  }
+  return body;
+}
+
+export function reportError(error: unknown, where: { source?: string; line?: number; column?: number; kind?: Kind } = {}) {
   try {
     if (unsupported || !enabled()) return;
     const now = Date.now();
     while (sent.length && now - sent[0] > WINDOW_MS) sent.shift();
     if (sent.length >= LIMIT) return;
     sent.push(now);
-    const body = {
-      message: clip(describe(error), 300),
-      source: clip(where.source, 300),
-      line: Number.isInteger(where.line) ? where.line : 0,
-      column: Number.isInteger(where.column) ? where.column : 0,
-      stack: clip(error instanceof Error ? error.stack : '', 1000),
-    };
+    const body = encode({
+      kind: where.kind ?? 'error',
+      message: clip(describe(error), MAX.message) || 'Unknown error',
+      source: clip(where.source, MAX.source),
+      line: position(where.line),
+      column: position(where.column),
+      stack: clip(error instanceof Error ? error.stack : '', MAX.stack),
+    });
     void fetch(ENDPOINT, {
       method: 'POST', cache: 'no-store', credentials: 'same-origin', keepalive: true,
       headers: { 'Content-Type': 'application/json', 'X-Erebor-Control': '1' },
-      body: JSON.stringify(body), signal: AbortSignal.timeout(5000),
+      body, signal: AbortSignal.timeout(5000),
     }).then(response => { if (response.status === 404) unsupported = true; })
       // Best effort: a report that cannot be delivered must not cause another one.
       .catch(() => undefined);
@@ -53,7 +73,7 @@ export function startErrorReporting(signedIn: () => boolean) {
     if (!event.error && event.message === 'Script error.') return;
     reportError(event.error ?? event.message, { source: event.filename, line: event.lineno, column: event.colno });
   });
-  addEventListener('unhandledrejection', event => reportError(event.reason, { source: 'unhandledrejection' }));
+  addEventListener('unhandledrejection', event => reportError(event.reason, { kind: 'unhandledrejection' }));
 }
 
 /** Errors Angular catches itself (templates, event handlers) never reach window.onerror. */

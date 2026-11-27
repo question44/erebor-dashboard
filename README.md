@@ -102,7 +102,8 @@ No actions are permitted by default, including when running the command directly
 
 Every action is listed once in [`actions.json`](actions.json) (id, label, kind,
 whether it asks for confirmation, and the endpoint the browser sends it to); the
-API reads it at startup and the module derives `enabledActions`' type from it.
+API reads it at startup, the module derives `enabledActions`' type from it and
+the frontend build imports it for button labels and confirmations.
 API actions: `display-on`, `display-off`, `screen-dp`, `screen-hdmi`,
 `ambilight-on`, `ambilight-off`, `profile-performance`, `profile-balanced`,
 `profile-power-saver`, `sleep`, `power-off`, `reboot-windows`, `moonshine-pair`
@@ -117,7 +118,9 @@ API actions: `display-on`, `display-off`, `screen-dp`, `screen-hdmi`,
   `compositors.ADAPTERS`. Supply the compositor's commands through
   `control.extraPackages`. `control.ignoredOutputs` names virtual outputs
   (capture or streaming) that are never switched or counted;
-  `control.screenModes` maps the screen switcher's modes to card labels.
+  `control.screenModes` maps the screen switcher's modes to card labels
+  (`GET /api/control/config` sends them as `screens` when a screen action is
+  visible; the dashboard falls back to DP-1 and HDMI).
 - **Profile** actions set power-profiles-daemon's `ActiveProfile` over D-Bus;
   grant the control user `org.freedesktop.UPower.PowerProfiles.switch-profile` in
   polkit, because the API runs outside an active session.
@@ -201,6 +204,13 @@ services 503, timeouts 504.
 | `no-client`, `moonshine-unreachable` | 409, 503 | Moonlight pairing: nothing waiting / Moonshine down |
 | `tasks-unavailable` | 503 | The task board command failed or printed something else |
 | `rate-limited` | 429 | Too many client error reports |
+| `unknown-action`, `unknown-screen`, `unknown-profile` | 400 | The catalog, `control.screenModes` or the profiles do not know this id |
+
+The dashboard shows the sentence for every failure; the approval codes
+`approval-denied`, `-timeout`, `-cancelled`, `-unavailable`, `-busy` and
+`-rate-limited`, and `forbidden`, `disabled` and `not-permitted`, appear as
+warnings (refused on purpose), every other code as an error. A 403 without a
+code (older APIs) counts as a refusal.
 
 Validation errors keep their plain `{"error": "Invalid action"}` (or
 `"Invalid request"`) with status 400.

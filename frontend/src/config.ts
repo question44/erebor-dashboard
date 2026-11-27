@@ -1,3 +1,5 @@
+import catalog from '../../actions.json';
+
 export interface Action { id: string; label: string; icon: string; off?: boolean; danger?: boolean; confirm?: string; button?: string; }
 export interface Service {
   id: string; label: string; description: string; icon: string;
@@ -30,6 +32,8 @@ export interface Settings {
   taskBoard?: boolean;
   /** Actions the system control daemon asks the owner to approve first. */
   approvals?: Record<string, 'approve'>;
+  /** Screen switcher modes (`screen-<mode>` actions) and their labels, e.g. { dp: 'DP-1' }. */
+  screens?: Record<string, string>;
 }
 /** An upper-case task status such as ACTIVE, READY, OPEN or REVIEW; new ones may appear at any time. */
 export type TaskStatus = string;
@@ -45,10 +49,8 @@ export interface TaskBoard {
   /** The API's statuses in display order, when it sends them. */
   statuses?: { id: TaskStatus; label: string }[];
 }
-/** Statuses the dashboard knows, in its order and wording; any other status follows with the API's or a title-cased label. */
-export const TASK_STATUSES: Record<string, string> = {
-  ACTIVE: 'Active', READY: 'Ready', OPEN: 'Open', REVIEW: 'In review', DONE: 'Done', CANCELLED: 'Cancelled',
-};
+/** Labels for APIs that send no `statuses` list (before 2.1, exactly ACTIVE, OPEN and REVIEW); otherwise the API's labels win. */
+export const LEGACY_STATUS_LABELS: Record<string, string> = { REVIEW: 'In review' };
 export const titleCase = (id: string) => id.toLowerCase().split(/[_\s-]+/).filter(Boolean)
   .map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 export type PublicSettings = Pick<Settings, 'title' | 'description' | 'domainSuffix' | 'auth'> & Partial<Settings>;
@@ -101,24 +103,41 @@ export const paths: Record<string, string> = {
   tasks: 'M9 6h11 M9 12h11 M9 18h11 M4 6l1 1 2-2 M4 12l1 1 2-2 M4 18l1 1 2-2',
 };
 
-export const availableActions = (title: string): Action[] => [
-  { id: 'wake', label: 'Wake up', icon: 'power' },
-  { id: 'display-on', label: 'Display on', icon: 'display' },
-  { id: 'display-off', label: 'Display off', icon: 'display', off: true },
-  { id: 'screen-dp', label: 'Show on DP-1', icon: 'display', button: 'DP-1' },
-  { id: 'screen-hdmi', label: 'Show on HDMI', icon: 'display', button: 'HDMI' },
-  { id: 'ambilight-on', label: 'Ambilight on', icon: 'light' },
-  { id: 'ambilight-off', label: 'Ambilight off', icon: 'light', off: true },
-  { id: 'profile-power-saver', label: 'Power saver profile', icon: 'gauge', button: 'Saver' },
-  { id: 'profile-balanced', label: 'Balanced profile', icon: 'gauge', button: 'Balanced' },
-  { id: 'profile-performance', label: 'Performance profile', icon: 'gauge', button: 'Performance' },
-  { id: 'moonshine-pair', label: 'Moonlight pairing', icon: 'gamepad' },
-  { id: 'sleep', label: 'Sleep', icon: 'sleep', confirm: `Put ${title} to sleep? Remote services will disconnect until it wakes.` },
-  { id: 'reboot-windows', label: 'Reboot to Windows', icon: 'windows', danger: true, confirm: `Reboot ${title} into Windows? Save your work first. All NixOS services will disconnect. This selects Windows for the next boot only.` },
-  { id: 'power-off', label: 'Power off', icon: 'power', danger: true, confirm: `Power off ${title}? Save your work first. Remote services will stop.` },
-];
+/** Labels the screen buttons had before the API sent a `screens` map. */
+const DEFAULT_SCREENS: Record<string, string> = { dp: 'DP-1', hdmi: 'HDMI' };
+export const screenLabel = (mode: string, screens?: Record<string, string>) =>
+  screens?.[mode] || DEFAULT_SCREENS[mode] || mode.toUpperCase();
 
-export const actionLabel = (id: string) => availableActions('').find(action => action.id === id)?.label ?? id;
+const KIND_ICONS: Record<string, string> = { power: 'power', display: 'display', screen: 'display', ambilight: 'light',
+  profile: 'gauge', moonshine: 'gamepad' };
+
+/** How actions look here; the list, labels and whether one asks first come from actions.json. */
+const PRESENTATION: Record<string, Partial<Action> & { prompt?: (title: string) => string }> = {
+  'display-off': { off: true },
+  'ambilight-off': { off: true },
+  'profile-power-saver': { button: 'Saver' },
+  'profile-balanced': { button: 'Balanced' },
+  'profile-performance': { button: 'Performance' },
+  'sleep': { icon: 'sleep', prompt: title => `Put ${title} to sleep? Remote services will disconnect until it wakes.` },
+  'reboot-windows': { icon: 'windows', danger: true, prompt: title => `Reboot ${title} into Windows? Save your work first. All NixOS services will disconnect. This selects Windows for the next boot only.` },
+  'power-off': { danger: true, prompt: title => `Power off ${title}? Save your work first. Remote services will stop.` },
+};
+
+export function availableActions(title: string, screens?: Record<string, string>): Action[] {
+  return catalog.actions.map(({ id, label, kind, confirm }) => {
+    const { prompt, ...look } = PRESENTATION[id] ?? {};
+    const action: Action = { icon: KIND_ICONS[kind] ?? 'system', ...look, id, label };
+    if (kind === 'screen') {
+      action.button = screenLabel(id.slice('screen-'.length), screens);
+      action.label = `Show on ${action.button}`;
+    }
+    if (confirm) action.confirm = prompt?.(title) ?? `${label}?`;
+    return action;
+  });
+}
+
+export const actionLabel = (id: string, screens?: Record<string, string>) =>
+  availableActions('', screens).find(action => action.id === id)?.label ?? id;
 
 export function resolveServices(settings: Settings) {
   const domain = settings.domainSuffix && location.hostname.endsWith(settings.domainSuffix);
@@ -134,15 +153,22 @@ export type ApiFailure = 'http' | 'network' | 'timeout' | 'invalid';
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number, readonly kind: ApiFailure = 'http',
-    /** Machine-readable reason, when the API sends one (e.g. "denied", "daemon-unreachable"). */
-    readonly code?: string) {
+    /** Machine-readable reason, when the API sends one (e.g. "approval-denied", "sysd-down"). */
+    readonly code?: string,
+    /** The message is the server's own explanation (its `error` field or plain-text body), not a generic one. */
+    readonly explained = false) {
     super(message);
     this.name = 'ApiError';
   }
 }
 
-/** Error codes for requests the system refused on purpose (approval, policy), as opposed to failures. */
-const REFUSAL_CODES = new Set(['not-approved', 'no-method', 'denied', 'forbidden']);
+/**
+ * Error codes (control API 2.1, see its README) for requests refused on purpose, shown as warnings:
+ * the approval was declined, cancelled, unreachable, timed out, busy or rate limited, or a policy
+ * (the dashboard's or the system control daemon's) forbids the action. Every other code is a failure.
+ */
+export const REFUSAL_CODES = new Set(['approval-denied', 'approval-timeout', 'approval-cancelled', 'approval-unavailable',
+  'approval-busy', 'approval-rate-limited', 'forbidden', 'disabled', 'not-permitted']);
 
 /** A deliberate refusal; APIs without error codes signal those with 403. */
 export const isRefusal = (error: unknown): error is ApiError => error instanceof ApiError
@@ -192,10 +218,12 @@ export async function api<T>(path: string, method = 'GET', body?: unknown, optio
   let result: any = null;
   try { result = text ? JSON.parse(text) : null; } catch { /* Proxy errors are plain text or HTML. */ }
   if (!response.ok) {
+    const generic = `The dashboard server answered ${response.status}${response.statusText ? ' ' + response.statusText : ''}.`;
     const plain = result === null && text.trim() && !/^\s*</.test(text) ? text.trim().slice(0, 200) : '';
     const message = typeof result?.error === 'string' && result.error ? result.error
-      : plain || `The dashboard server answered ${response.status}${response.statusText ? ' ' + response.statusText : ''}.`;
-    throw new ApiError(message, response.status, 'http', typeof result?.code === 'string' ? result.code : undefined);
+      : plain || generic;
+    throw new ApiError(message, response.status, 'http', typeof result?.code === 'string' ? result.code : undefined,
+      message !== generic);
   }
   if (result === null) throw new ApiError('Unexpected response from the dashboard server.', response.status, 'invalid');
   return result as T;

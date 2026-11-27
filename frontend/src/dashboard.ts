@@ -6,16 +6,16 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
-import { Action, ApiError, Layout, Section, Settings, TASK_STATUSES, TaskBoard, TaskItem, api, availableActions, emptyLayout, errorText, isAbort,
-  isRefusal, readJson, requestFailure, resolveServices, titleCase } from './config';
+import { Action, ApiError, LEGACY_STATUS_LABELS, Layout, Section, Settings, TaskBoard, TaskItem, api, availableActions, emptyLayout, errorText, isAbort,
+  isRefusal, readJson, requestFailure, resolveServices, screenLabel, titleCase } from './config';
 import { Icon } from './icon';
 import { Session } from './session';
 import { PasswordDialog } from './users';
 
 interface InstallPrompt extends Event { prompt(): Promise<void>; }
 type Device = 'display' | 'screen' | 'ambilight' | 'profile';
-type DeviceState = 'on' | 'off' | 'mixed' | 'dp' | 'hdmi' | 'both' | 'none'
-  | 'performance' | 'balanced' | 'power-saver' | 'unknown';
+/** on, off, mixed, a profile, a screen mode id (the API's `screens` keys), both, none or unknown. */
+type DeviceState = string;
 interface DeviceStatus { state: DeviceState; detail: string; }
 interface DeviceSnapshot { display: DeviceStatus; screen: DeviceStatus; ambilight: DeviceStatus; profile?: DeviceStatus; }
 interface PowerStatus {
@@ -85,7 +85,7 @@ function readLocalLayout(): Layout {
 export class Dashboard {
   readonly session = inject(Session);
   readonly settings: Settings = this.session.settings()!;
-  readonly actions = availableActions(this.settings.title).filter(action => this.settings.actions.includes(action.id)
+  readonly actions = availableActions(this.settings.title, this.settings.screens).filter(action => this.settings.actions.includes(action.id)
     && (action.id !== 'wake' || this.settings.wakeUrl?.startsWith('https://')));
   readonly services = resolveServices(this.settings);
   readonly deviceControls = (['display', 'screen', 'ambilight', 'profile'] as const).map(device => ({
@@ -181,17 +181,14 @@ export class Dashboard {
   readonly attentionTasks = computed(() => (this.taskBoard()?.tasks ?? [])
     .filter(task => task.status === 'ACTIVE' || task.overdue));
   readonly listedTasks = computed(() => this.showAllTasks() ? this.taskBoard()?.tasks ?? [] : this.attentionTasks());
-  /** Counted statuses: known ones in their order and wording, then any others the API sends. */
+  /** Counted statuses in the API's `statuses` order, then any it did not list in the order of `counts`. */
   readonly taskStatuses = computed(() => {
     const board = this.taskBoard();
     if (!board) return [];
-    const known = Object.keys(TASK_STATUSES), listed = board.statuses ?? [];
-    const rank = (id: string) => known.includes(id) ? known.indexOf(id)
-      : known.length + (listed.some(s => s.id === id) ? listed.findIndex(s => s.id === id) : listed.length);
-    return Object.entries(board.counts)
-      .filter((entry): entry is [string, number] => typeof entry[1] === 'number')
-      .sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b))
-      .map(([id, count]) => ({ id, count, label: this.statusLabel(id) }));
+    const listed = (board.statuses ?? []).map(status => status.id);
+    const ids = [...new Set([...listed, ...Object.keys(board.counts)])];
+    return ids.filter(id => typeof board.counts[id] === 'number')
+      .map(id => ({ id, count: board.counts[id]!, label: this.statusLabel(id) }));
   });
   private taskRequest = false;
   /** Last failure logged per poll, so a server that stays down is reported once, not every few seconds. */
@@ -361,12 +358,12 @@ export class Dashboard {
   }
 
   statusLabel(id: string) {
-    return TASK_STATUSES[id] ?? this.taskBoard()?.statuses?.find(status => status.id === id)?.label ?? titleCase(id);
+    return this.taskBoard()?.statuses?.find(status => status.id === id)?.label ?? LEGACY_STATUS_LABELS[id] ?? titleCase(id);
   }
 
   /** Status shown after a task's title: none for plain open tasks, then its review date when overdue. */
   taskMeta(task: TaskItem) {
-    const status = task.status === 'OPEN' ? '' : TASK_STATUSES[task.status] ? task.status.toLowerCase() : this.statusLabel(task.status).toLowerCase();
+    const status = task.status === 'OPEN' ? '' : this.statusLabel(task.status).toLowerCase();
     return status + (task.overdue ? (status ? ' · ' : '') + 'review ' + (task.review ?? '') : '');
   }
 
@@ -591,8 +588,9 @@ export class Dashboard {
     if (this.switching() === device) return 'Switching…';
     const state = this.devices()?.[device]?.state;
     if (!state) return this.checkingDevices() ? 'Checking…' : 'Unknown';
-    return { on: 'On', off: 'Off', mixed: 'Mixed', dp: 'DP-1', hdmi: 'HDMI', both: 'Both', none: 'None',
-      performance: 'Performance', balanced: 'Balanced', 'power-saver': 'Power saver', unknown: 'Unknown' }[state];
+    if (device === 'screen' && !['both', 'none', 'unknown'].includes(state)) return screenLabel(state, this.settings.screens);
+    return ({ on: 'On', off: 'Off', mixed: 'Mixed', both: 'Both', none: 'None', performance: 'Performance',
+      balanced: 'Balanced', 'power-saver': 'Power saver', unknown: 'Unknown' } as Record<string, string>)[state] ?? titleCase(state);
   }
 
   isCurrent(device: Device, action: Action) {
